@@ -99,8 +99,14 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 				d.showEditDialog(entry)
 			}
 			delBtn.OnTapped = func() {
-				d.storage.DeleteEntry(entry)
-				d.refreshList()
+				parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+				dialog.ShowConfirm("Confirm Deletion", "Are you sure you want to delete this task?", func(confirmed bool) {
+					if !confirmed {
+						return
+					}
+					d.storage.DeleteEntry(entry)
+					d.refreshList()
+				}, parentWindow)
 			}
 		},
 	)
@@ -192,7 +198,8 @@ func (d *Dashboard) showEditDialog(entry models.TimeEntry) {
 		widget.NewFormItem("End Time", endEntry),
 	}
 
-	dialog.ShowForm("Edit Task", "Save", "Cancel", items, func(b bool) {
+	parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+	dlg := dialog.NewForm("Edit Task", "Save", "Cancel", items, func(b bool) {
 		if !b {
 			return
 		}
@@ -226,7 +233,9 @@ func (d *Dashboard) showEditDialog(entry models.TimeEntry) {
 
 		d.storage.SaveEntry(entry)
 		d.refreshList()
-	}, fyne.CurrentApp().Driver().AllWindows()[0])
+	}, parentWindow)
+	dlg.Resize(fyne.NewSize(parentWindow.Canvas().Size().Width, dlg.MinSize().Height))
+	dlg.Show()
 }
 
 func formatDuration(d time.Duration) string {
