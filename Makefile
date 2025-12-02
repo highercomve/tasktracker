@@ -2,9 +2,9 @@ BINARY_NAME=tasktracker
 ENTRY_POINT=./cmd/tasktracker
 VERSION=$(shell git describe --tags --always --dirty="-dev" --abbrev=7)
 
-.PHONY: all build run clean test deps deps-cross build-linux build-windows dist
+.PHONY: all build run clean test deps build-linux build-windows build-linux-arm64 build-windows-arm64 build-windows-all
 
-all: build
+all: build-linux build-windows
 
 build:
 	go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" -o $(BINARY_NAME) $(ENTRY_POINT)
@@ -22,13 +22,14 @@ test:
 deps:
 	go mod tidy
 
-deps-cross:
-	go install fyne.io/fyne-cross/v2/cmd/fyne-cross@latest
-
-build-linux:
-	fyne-cross linux -arch=amd64 -app-id com.highercomve.tasktracker -name $(BINARY_NAME) -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" $(ENTRY_POINT)
+build-linux: deps
+	@echo "Building for Linux (amd64)"
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC="zig cc -target x86_64-linux-gnu -isystem /usr/include -L/usr/lib -L/usr/lib64" CXX="zig c++ -target x86_64-linux-gnu -isystem /usr/include -L/usr/lib -L/usr/lib64" go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" -o dist/linux-amd64/$(BINARY_NAME) $(ENTRY_POINT)
 
 build-windows:
-	fyne-cross windows -arch=amd64 -app-id com.highercomve.tasktracker -name $(BINARY_NAME) -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" $(ENTRY_POINT)
+	@echo "Building for Windows (amd64)"
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu -Wdeprecated-non-prototype -Wl,--subsystem,windows" CXX="zig c++ -target x86_64-windows-gnu -Wdeprecated-non-prototype -Wl,--subsystem,windows" go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" -o dist/windows-amd64/$(BINARY_NAME).exe $(ENTRY_POINT)
 
-dist: build-linux build-windows
+build-windows-arm64:
+	@echo "Building for Windows (arm64)"
+	GOOS=windows GOARCH=arm64 CGO_ENABLED=1 CC="zig cc -target aarch64-windows-gnu -Wdeprecated-non-prototype -Wl,--subsystem,windows" CXX="zig c++ -target aarch64-windows-gnu -Wdeprecated-non-prototype -Wl,--subsystem,windows" go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" -o dist/windows-arm64/$(BINARY_NAME).exe $(ENTRY_POINT)

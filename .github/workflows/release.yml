@@ -11,12 +11,6 @@ permissions:
 jobs:
     build-and-release:
         runs-on: ubuntu-latest
-        env: # Added environment variable for VERSION
-            VERSION: ${{ github.ref_name }} # e.g. v1.0.0 from refs/tags/v1.0.0
-        strategy:
-            matrix:
-                target_os: [linux, windows]
-                                    goarch: [amd64, arm64]
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
@@ -24,64 +18,31 @@ jobs:
             - name: Set up Go
               uses: actions/setup-go@v5
               with:
-                  go-version: "1.24" # Use the Go version you need
+                  go-version: "1.24"
 
-            - name: Install Fyne dependencies (Linux host for Linux target)
-              if: matrix.target_os == 'linux'
+            - name: Set up Zig
+              uses: goto-bus-stop/setup-zig@v2
+              with:
+                  version: 0.15.2
+
+            - name: Install Linux dependencies
               run: |
                   sudo apt-get update
                   sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev
 
-            - name: Install MinGW-w64 (for Windows cross-compilation)
-              if: matrix.target_os == 'windows'
-              uses: egor-tensin/setup-mingw@v2
-              with:
-                  platform: x64
-
-            - name: Build for ${{ matrix.target_os }}
-              env:
-                  GOOS: ${{ matrix.target_os }}
-                  GOARCH: ${{ matrix.goarch }}
-                  CGO_ENABLED: 1
-                  CC: ${{ matrix.target_os == 'windows' && 'x86_64-w64-mingw32-gcc' || '' }}
+            - name: Build Linux and Windows (amd64)
               run: |
-                  go mod tidy
-                  BINARY_NAME="tasktracker-${{ matrix.target_os }}-${{ matrix.goarch }}"
-                  if [ "${{ matrix.target_os }}" == "windows" ]; then
-                    BINARY_NAME="${BINARY_NAME}.exe"
-                  fi
-                  go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=${{ env.VERSION }}'" -o "${BINARY_NAME}" ./cmd/tasktracker
-                  echo "BUILT_BINARY_NAME=${BINARY_NAME}" >> $GITHUB_ENV
+                  make build-linux
+                  make build-windows
 
-            - name: Prepare archives for Linux
-              if: matrix.target_os == 'linux'
+            - name: Package Releases
               run: |
-                  mkdir -p dist/linux-amd64
-                  tar -cJf dist/linux-amd64/tasktracker-linux-amd64.tar.xz ${{ env.BUILT_BINARY_NAME }}
-            - name: Upload Linux artifact
-              if: matrix.target_os == 'linux'
-              uses: actions/upload-artifact@v4
-              with:
-                  name: tasktracker-linux-amd64.tar.xz
-                  path: dist/linux-amd64/tasktracker-linux-amd64.tar.xz
-
-            - name: Prepare archives for Windows
-              if: matrix.target_os == 'windows'
-              run: |
-                  mkdir -p dist/windows-amd64
-                  zip dist/windows-amd64/tasktracker-windows-amd64.zip ${{ env.BUILT_BINARY_NAME }}
-            - name: Upload Windows artifact
-              if: matrix.target_os == 'windows'
-              uses: actions/upload-artifact@v4
-              with:
-                  name: tasktracker-windows-amd64.zip
-                  path: dist/windows-amd64/tasktracker-windows-amd64.zip
-
-
+                  cd dist/linux-amd64 && tar -cJf ../../tasktracker-linux-amd64.tar.xz tasktracker && cd ../..
+                  cd dist/windows-amd64 && zip ../../tasktracker-windows-amd64.zip tasktracker.exe && cd ../..
 
             - name: Create Release
               uses: softprops/action-gh-release@v2
               with:
                   files: |
-                      dist/**/*.tar.xz
-                      dist/**/*.zip
+                      tasktracker-linux-amd64.tar.xz
+                      tasktracker-windows-amd64.zip
