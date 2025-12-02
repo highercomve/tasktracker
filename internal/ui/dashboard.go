@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"go-tracker/internal/models"
-	"go-tracker/internal/store"
+	"github.com/highercomve/tasktracker/internal/models"
+	"github.com/highercomve/tasktracker/internal/store"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"

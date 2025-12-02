@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"go-tracker/internal/models"
+	"github.com/highercomve/tasktracker/internal/models"
 )
 
 type Storage struct {

@@ -1,8 +1,11 @@
 package main
 
 import (
-	"go-tracker/internal/store"
-	"go-tracker/internal/ui"
+	"log"
+
+	"github.com/highercomve/tasktracker/internal/store"
+	"github.com/highercomve/tasktracker/internal/ui"
+	"github.com/highercomve/tasktracker/internal/updater"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -10,6 +13,12 @@ import (
 )
 
 func main() {
+	// Call self-update check at startup
+	err := updater.SelfUpdate("highercomve", "tasktracker") // Replace with actual GitHub owner and repo
+	if err != nil {
+		log.Printf("Self-update failed: %v", err) // Use log for errors
+	}
+
 	a := app.NewWithID("com.highercomve.task-tracker")
 	// Simple red dot PNG
 	// iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==

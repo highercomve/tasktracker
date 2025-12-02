@@ -1,0 +1,58 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - "v*"
+
+permissions:
+    contents: write
+
+jobs:
+    build-and-release:
+        runs-on: ubuntu-latest
+        env: # Added environment variable for VERSION
+            VERSION: ${{ github.ref_name }} # e.g. v1.0.0 from refs/tags/v1.0.0
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v4
+
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.24"
+
+            - name: Install dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y zip xz-utils
+
+            - name: Install fyne-cross
+              run: go install fyne.io/fyne-cross/v2/cmd/fyne-cross@latest
+
+            - name: Build for Linux
+              run: |
+                  fyne-cross linux -arch=amd64 -app-id com.highercomve.task-tracker -name task-tracker -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=${{ env.VERSION }}'" ./cmd/mytracker
+
+            - name: Build for Windows
+              run: |
+                  fyne-cross windows -arch=amd64 -app-id com.highercomve.task-tracker -name task-tracker -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=${{ env.VERSION }}'" ./cmd/mytracker
+
+            - name: Package Linux
+              run: |
+                  mkdir -p fyne-cross/dist/linux-amd64
+                  cd fyne-cross/bin/linux-amd64
+                  tar -cJf ../../dist/linux-amd64/task-tracker.tar.xz task-tracker
+
+            - name: Package Windows
+              run: |
+                  mkdir -p fyne-cross/dist/windows-amd64
+                  cd fyne-cross/bin/windows-amd64
+                  zip ../../dist/windows-amd64/task-tracker.zip task-tracker.exe
+
+            - name: Create Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  files: |
+                      fyne-cross/dist/linux-amd64/task-tracker.tar.xz
+                      fyne-cross/dist/windows-amd64/task-tracker.zip
