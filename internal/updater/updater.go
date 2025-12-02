@@ -157,12 +157,12 @@ func DownloadAndReplace(downloadURL, executablePath string) error {
 	// Extract the new executable
 	extractedExecutablePath := ""
 	if strings.HasSuffix(archiveName, ".tar.xz") {
-		extractedExecutablePath, err = extractTarXz(tmpArchivePath, tmpDir)
+		extractedExecutablePath, err = extractTarXz(tmpArchivePath, tmpDir, executablePath)
 		if err != nil {
 			return fmt.Errorf("failed to extract .tar.xz: %w", err)
 		}
 	} else if strings.HasSuffix(archiveName, ".zip") {
-		extractedExecutablePath, err = extractZip(tmpArchivePath, tmpDir)
+		extractedExecutablePath, err = extractZip(tmpArchivePath, tmpDir, executablePath)
 		if err != nil {
 			return fmt.Errorf("failed to extract .zip: %w", err)
 		}
@@ -179,7 +179,7 @@ func DownloadAndReplace(downloadURL, executablePath string) error {
 }
 
 // extractTarXz extracts the binary from a .tar.xz archive.
-func extractTarXz(archivePath, destDir string) (string, error) {
+func extractTarXz(archivePath, destDir, executablePath string) (string, error) {
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return "", err
@@ -226,7 +226,7 @@ func extractTarXz(archivePath, destDir string) (string, error) {
 }
 
 // extractZip extracts the binary from a .zip archive.
-func extractZip(archivePath, destDir string) (string, error) {
+func extractZip(archivePath, destDir, executablePath string) (string, error) {
 	r, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return "", err
