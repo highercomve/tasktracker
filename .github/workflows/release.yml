@@ -16,8 +16,7 @@ jobs:
         strategy:
             matrix:
                 target_os: [linux, windows]
-                goarch: [amd64]
-
+                                    goarch: [amd64, arm64]
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
@@ -84,5 +83,5 @@ jobs:
               uses: softprops/action-gh-release@v2
               with:
                   files: |
-                      dist/linux-amd64/tasktracker-linux-amd64.tar.xz
-                      dist/windows-amd64/tasktracker-windows-amd64.zip
+                      dist/**/*.tar.xz
+                      dist/**/*.zip

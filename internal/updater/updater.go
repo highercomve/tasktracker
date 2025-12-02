@@ -93,15 +93,17 @@ func CheckForUpdates(owner, repo string) (string, string, error) {
 	}
 
 	// Find the appropriate asset for the current OS and architecture
+	assetPlatform := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
 	expectedAssetSuffix := ""
 	executableName := "task-tracker" // Base name without extension
+
 	if runtime.GOOS == "windows" {
-		expectedAssetSuffix = "windows-amd64.zip"
+		expectedAssetSuffix = fmt.Sprintf("%s.zip", assetPlatform)
 		executableName += ".exe"
 	} else if runtime.GOOS == "linux" {
-		expectedAssetSuffix = "linux-amd64.tar.xz"
+		expectedAssetSuffix = fmt.Sprintf("%s.tar.xz", assetPlatform)
 	} else {
-		return "", "", fmt.Errorf("unsupported operating system for self-update: %s", runtime.GOOS)
+		return "", "", fmt.Errorf("unsupported operating system for self-update: %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
 
 	for _, asset := range release.Assets {
@@ -200,10 +202,13 @@ func extractTarXz(archivePath, destDir string) (string, error) {
 		}
 
 		if header.Typeflag == tar.TypeReg {
-			// Expecting the executable to be named "task-tracker" within the archive
-			expectedExecutableName := "task-tracker"
-			if filepath.Base(header.Name) == expectedExecutableName {
-				newExecutablePath := filepath.Join(destDir, expectedExecutableName)
+				// Expecting the executable to be named after the original executable
+				expectedExecutableName := filepath.Base(executablePath)
+				// On Linux, the executable name won't have .exe
+				if runtime.GOOS == "linux" && strings.HasSuffix(expectedExecutableName, ".exe") {
+					expectedExecutableName = strings.TrimSuffix(expectedExecutableName, ".exe")
+				}
+				if filepath.Base(header.Name) == expectedExecutableName {				newExecutablePath := filepath.Join(destDir, expectedExecutableName)
 				newFile, err := os.OpenFile(newExecutablePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, header.FileInfo().Mode())
 				if err != nil {
 					return "", err
@@ -228,9 +233,10 @@ func extractZip(archivePath, destDir string) (string, error) {
 	}
 	defer r.Close()
 
-	expectedExecutableName := "task-tracker.exe"
-	if runtime.GOOS != "windows" { // For consistency, though this path should only be taken on Windows
-		expectedExecutableName = "task-tracker"
+	expectedExecutableName := filepath.Base(executablePath)
+	// On Windows, the executable name should have .exe
+	if runtime.GOOS == "windows" && !strings.HasSuffix(expectedExecutableName, ".exe") {
+		expectedExecutableName += ".exe"
 	}
 
 	for _, f := range r.File {
