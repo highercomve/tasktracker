@@ -21,3 +21,9 @@ After building, you can run the application from the project root:
 ## Usage
 
 More detailed usage instructions will be added here.
+
+## Screenshots
+
+![Screenshot 1](assets/1.jpg)
+![Screenshot 2](assets/2.jpg)
+![Screenshot 3](assets/3.jpg)
