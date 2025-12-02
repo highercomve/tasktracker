@@ -95,7 +95,7 @@ func CheckForUpdates(owner, repo string) (string, string, error) {
 	// Find the appropriate asset for the current OS and architecture
 	assetPlatform := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
 	expectedAssetSuffix := ""
-	executableName := "task-tracker" // Base name without extension
+	executableName := "tasktracker" // Base name without extension
 
 	if runtime.GOOS == "windows" {
 		expectedAssetSuffix = fmt.Sprintf("%s.zip", assetPlatform)
@@ -121,7 +121,7 @@ func CheckForUpdates(owner, repo string) (string, string, error) {
 // DownloadAndReplace downloads the new version and replaces the current executable.
 func DownloadAndReplace(downloadURL, executablePath string) error {
 	// Create a temporary directory for the download
-	tmpDir, err := os.MkdirTemp("", "github.com/highercomve/tasktracker-update-")
+	tmpDir, err := os.MkdirTemp("", "tasktracker-update-")
 	if err != nil {
 		return fmt.Errorf("failed to create temporary directory: %w", err)
 	}
@@ -222,7 +222,7 @@ func extractTarXz(archivePath, destDir, executablePath string) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("executable 'task-tracker' not found in .tar.xz archive")
+	return "", fmt.Errorf("executable 'tasktracker' not found in .tar.xz archive")
 }
 
 // extractZip extracts the binary from a .zip archive.
@@ -240,7 +240,7 @@ func extractZip(archivePath, destDir, executablePath string) (string, error) {
 	}
 
 	for _, f := range r.File {
-		// Expecting the executable to be named "task-tracker.exe" (or "task-tracker") directly in the zip
+		// Expecting the executable to be named "tasktracker.exe" (or "tasktracker") directly in the zip
 		if filepath.Base(f.Name) == expectedExecutableName {
 			rc, err := f.Open()
 			if err != nil {
@@ -310,9 +310,43 @@ func replaceExecutable(oldExecutablePath, newExecutablePath string) error {
 
 	// Move the new executable into place
 	if err := os.Rename(newExecutablePath, oldExecutablePath); err != nil {
-		// If moving fails, try to move the backup back to rollback
-		_ = os.Rename(backupPath, oldExecutablePath) // Best effort rollback
-		return fmt.Errorf("failed to move new executable into place: %w", err)
+		// Check for cross-device link error (EXDEV) by checking the error string or type.
+		// A simple way to handle this robustly is to fallback to copy if rename fails.
+		// This handles cases where /tmp and the app dir are on different filesystems.
+		if strings.Contains(err.Error(), "invalid cross-device link") || strings.Contains(err.Error(), "cross-device link") {
+			// Fallback: Copy file content
+			src, errOpen := os.Open(newExecutablePath)
+			if errOpen != nil {
+				_ = os.Rename(backupPath, oldExecutablePath) // Rollback
+				return fmt.Errorf("failed to open new executable for copying: %w", errOpen)
+			}
+			defer src.Close()
+
+			dst, errCreate := os.OpenFile(oldExecutablePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
+			if errCreate != nil {
+				_ = os.Rename(backupPath, oldExecutablePath) // Rollback
+				return fmt.Errorf("failed to open old executable for writing: %w", errCreate)
+			}
+			
+			// Ensure dst is closed so we can execute it (flushed)
+			// Using a closure to handle the close and error check properly? 
+			// Or just standard defer, but we might want to sync.
+			// For simplicity, defer Close is okay, but we should be careful about partial writes.
+			
+			if _, errCopy := io.Copy(dst, src); errCopy != nil {
+				dst.Close() // Close before rollback
+				_ = os.Rename(backupPath, oldExecutablePath) // Rollback
+				return fmt.Errorf("failed to copy new executable: %w", errCopy)
+			}
+			dst.Close()
+
+			// Cleanup the temp new executable
+			_ = os.Remove(newExecutablePath)
+		} else {
+			// If moving fails and it's not a cross-device error, try to move the backup back to rollback
+			_ = os.Rename(backupPath, oldExecutablePath) // Best effort rollback
+			return fmt.Errorf("failed to move new executable into place: %w", err)
+		}
 	}
 
 	// Make sure the new executable has execute permissions
