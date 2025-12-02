@@ -9,7 +9,9 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -22,15 +24,18 @@ func NewReports(s *store.Storage) *Reports {
 }
 
 func (r *Reports) MakeUI() fyne.CanvasObject {
-	dailyContent := widget.NewLabel("Select a date to view report")
-	weeklyContent := widget.NewLabel("Select a week to view report")
-	monthlyContent := widget.NewLabel("Select a month to view report")
+	// Content containers
+	dailyContent := container.NewStack()
+	weeklyContent := container.NewStack()
+	monthlyContent := container.NewStack()
+	customContent := container.NewStack()
 
 	// Helper to refresh content
-	refreshReport := func(content *widget.Label, start, end time.Time) {
+	refreshReport := func(content *fyne.Container, start, end time.Time) {
 		entries, _ := r.storage.LoadEntriesForRange(start, end)
-		summary := summarizeEntries(entries)
-		content.SetText(summary)
+		reportUI := r.renderHistory(entries)
+		content.Objects = []fyne.CanvasObject{reportUI}
+		content.Refresh()
 	}
 
 	// Daily Tab
@@ -43,9 +48,9 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	}
 	updateDaily() // Initial
 
-	dailyTab := container.NewVBox(
+	dailyTab := container.NewBorder(
 		container.NewHBox(
-			widget.NewButton("<", func() {
+			widget.NewButtonWithIcon("", theme.NavigateBackIcon(), func() {
 				selectedDay = selectedDay.AddDate(0, 0, -1)
 				updateDaily()
 			}),
@@ -53,13 +58,14 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 				selectedDay = time.Now()
 				updateDaily()
 			}),
-			widget.NewButton(">", func() {
+			widget.NewButtonWithIcon("", theme.NavigateNextIcon(), func() {
 				selectedDay = selectedDay.AddDate(0, 0, 1)
 				updateDaily()
 			}),
 			layout.NewSpacer(),
 			dailyLabel,
 		),
+		nil, nil, nil,
 		dailyContent,
 	)
 
@@ -81,9 +87,9 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	}
 	updateWeekly()
 
-	weeklyTab := container.NewVBox(
+	weeklyTab := container.NewBorder(
 		container.NewHBox(
-			widget.NewButton("<", func() {
+			widget.NewButtonWithIcon("", theme.NavigateBackIcon(), func() {
 				selectedWeekStart = selectedWeekStart.AddDate(0, 0, -7)
 				updateWeekly()
 			}),
@@ -91,13 +97,14 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 				selectedWeekStart = getWeekStart(time.Now())
 				updateWeekly()
 			}),
-			widget.NewButton(">", func() {
+			widget.NewButtonWithIcon("", theme.NavigateNextIcon(), func() {
 				selectedWeekStart = selectedWeekStart.AddDate(0, 0, 7)
 				updateWeekly()
 			}),
 			layout.NewSpacer(),
 			weeklyLabel,
 		),
+		nil, nil, nil,
 		weeklyContent,
 	)
 
@@ -115,9 +122,9 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	}
 	updateMonthly()
 
-	monthlyTab := container.NewVBox(
+	monthlyTab := container.NewBorder(
 		container.NewHBox(
-			widget.NewButton("<", func() {
+			widget.NewButtonWithIcon("", theme.NavigateBackIcon(), func() {
 				selectedMonth = selectedMonth.AddDate(0, -1, 0)
 				updateMonthly()
 			}),
@@ -125,43 +132,153 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 				selectedMonth = getMonthStart(time.Now())
 				updateMonthly()
 			}),
-			widget.NewButton(">", func() {
+			widget.NewButtonWithIcon("", theme.NavigateNextIcon(), func() {
 				selectedMonth = selectedMonth.AddDate(0, 1, 0)
 				updateMonthly()
 			}),
 			layout.NewSpacer(),
 			monthlyLabel,
 		),
+		nil, nil, nil,
 		monthlyContent,
+	)
+
+	// Custom Range Tab
+	startDate := time.Now().AddDate(0, 0, -7)
+	endDate := time.Now()
+	
+	var startBtn, endBtn *widget.Button
+
+	updateCustom := func() {
+		startBtn.SetText(startDate.Format("2006-01-02"))
+		endBtn.SetText(endDate.Format("2006-01-02"))
+		refreshReport(customContent, startDate, endDate)
+	}
+
+	pickDate := func(current time.Time, onSelect func(time.Time)) {
+		var d dialog.Dialog
+		cal := widget.NewCalendar(current, func(t time.Time) {
+			onSelect(t)
+			if d != nil {
+				d.Hide()
+			}
+		})
+		
+		// We need to find the parent window
+		wins := fyne.CurrentApp().Driver().AllWindows()
+		if len(wins) > 0 {
+			d = dialog.NewCustom("Select Date", "Cancel", container.NewPadded(cal), wins[0])
+			d.Resize(fyne.NewSize(300, 300))
+			d.Show()
+		}
+	}
+
+	startBtn = widget.NewButton(startDate.Format("2006-01-02"), func() {
+		pickDate(startDate, func(t time.Time) {
+			startDate = t
+			updateCustom()
+		})
+	})
+
+	endBtn = widget.NewButton(endDate.Format("2006-01-02"), func() {
+		pickDate(endDate, func(t time.Time) {
+			endDate = t
+			updateCustom()
+		})
+	})
+
+	updateCustom() // Initial
+
+	customTab := container.NewBorder(
+		container.NewHBox(
+			widget.NewLabel("From:"), startBtn,
+			widget.NewLabel("To:"), endBtn,
+			layout.NewSpacer(),
+			widget.NewButtonWithIcon("Refresh", theme.ViewRefreshIcon(), func() {
+				updateCustom()
+			}),
+		),
+		nil, nil, nil,
+		customContent,
 	)
 
 	return container.NewAppTabs(
 		container.NewTabItem("Daily", dailyTab),
 		container.NewTabItem("Weekly", weeklyTab),
 		container.NewTabItem("Monthly", monthlyTab),
+		container.NewTabItem("Custom Range", customTab),
 	)
 }
 
-func summarizeEntries(entries []models.TimeEntry) string {
+func (r *Reports) renderHistory(entries []models.TimeEntry) fyne.CanvasObject {
 	if len(entries) == 0 {
-		return "No entries found."
+		return widget.NewLabel("No entries found for this period.")
 	}
 
+	// Summary
 	sums := make(map[string]time.Duration)
+	var total time.Duration
 	for _, e := range entries {
 		dur := time.Duration(e.Duration) * time.Second
 		if e.EndTime.IsZero() {
 			dur = time.Since(e.StartTime)
 		}
 		sums[e.Description] += dur
-	}
-
-	result := "Summary:\n"
-	var total time.Duration
-	for desc, dur := range sums {
-		result += fmt.Sprintf("- %s: %s\n", desc, formatDuration(dur))
 		total += dur
 	}
-	result += fmt.Sprintf("\nTotal Time: %s", formatDuration(total))
-	return result
+
+	summaryText := fmt.Sprintf("Total Time: %s\n", formatDuration(total))
+	for desc, dur := range sums {
+		summaryText += fmt.Sprintf("- %s: %s\n", desc, formatDuration(dur))
+	}
+	summaryLabel := widget.NewLabel(summaryText)
+
+	// List
+	// Use a simple VBox with Scroll for now as NewList might be overkill or tricky to update 
+	// inside a completely regenerated view without keeping state. 
+	// But NewList is more efficient. Let's use NewList with a fixed data source.
+	
+	listData := entries // local copy
+	
+	listView := widget.NewList(
+		func() int { return len(listData) },
+		func() fyne.CanvasObject {
+			return container.NewBorder(nil, nil, 
+				widget.NewLabel("00:00:00"), 
+				nil,
+				container.NewVBox(
+					widget.NewLabelWithStyle("Title", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+					widget.NewLabelWithStyle("Date", fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
+				))
+		},
+		func(i int, o fyne.CanvasObject) {
+			// Reverse order for display? Or chronological?
+			// Usually history is newest first.
+			entry := listData[len(listData)-1-i] 
+			
+			box := o.(*fyne.Container)
+			durLabel := box.Objects[1].(*widget.Label)
+			infoBox := box.Objects[0].(*fyne.Container)
+			titleLabel := infoBox.Objects[0].(*widget.Label)
+			dateLabel := infoBox.Objects[1].(*widget.Label)
+
+			titleLabel.SetText(entry.Description)
+			dateLabel.SetText(entry.StartTime.Format("Mon, 02 Jan 15:04"))
+
+			dur := time.Duration(entry.Duration) * time.Second
+			if entry.EndTime.IsZero() {
+				dur = time.Since(entry.StartTime)
+				durLabel.TextStyle = fyne.TextStyle{Italic: true}
+			} else {
+				durLabel.TextStyle = fyne.TextStyle{}
+			}
+			durLabel.SetText(formatDuration(dur))
+		},
+	)
+
+	return container.NewBorder(
+		container.NewVBox(summaryLabel, widget.NewSeparator()), 
+		nil, nil, nil, 
+		listView,
+	)
 }
