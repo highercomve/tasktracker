@@ -31,9 +31,9 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	customContent := container.NewStack()
 
 	// Helper to refresh content
-	refreshReport := func(content *fyne.Container, start, end time.Time) {
+	refreshReport := func(content *fyne.Container, start, end time.Time, refreshFunc func()) {
 		entries, _ := r.storage.LoadEntriesForRange(start, end)
-		reportUI := r.renderHistory(entries)
+		reportUI := r.renderHistory(entries, refreshFunc)
 		content.Objects = []fyne.CanvasObject{reportUI}
 		content.Refresh()
 	}
@@ -42,9 +42,14 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	var selectedDay = time.Now()
 	dailyLabel := widget.NewLabel("")
 
-	updateDaily := func() {
+	// Define update functions first so they can be used recursively if needed (though typically not needed for this pattern)
+	// Actually, we need a stable reference to the update function to pass as a callback?
+	// Yes, refreshReport needs to know WHAT to call to re-trigger the full update (re-load entries).
+	
+	var updateDaily func()
+	updateDaily = func() {
 		dailyLabel.SetText("Report for " + selectedDay.Format("Mon, 02 Jan 2006"))
-		refreshReport(dailyContent, selectedDay, selectedDay)
+		refreshReport(dailyContent, selectedDay, selectedDay, updateDaily)
 	}
 	updateDaily() // Initial
 
@@ -80,10 +85,11 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	var selectedWeekStart = getWeekStart(time.Now())
 	weeklyLabel := widget.NewLabel("")
 
-	updateWeekly := func() {
+	var updateWeekly func()
+	updateWeekly = func() {
 		end := selectedWeekStart.AddDate(0, 0, 6)
 		weeklyLabel.SetText(fmt.Sprintf("Week %s - %s", selectedWeekStart.Format("Jan 02"), end.Format("Jan 02")))
-		refreshReport(weeklyContent, selectedWeekStart, end)
+		refreshReport(weeklyContent, selectedWeekStart, end, updateWeekly)
 	}
 	updateWeekly()
 
@@ -115,10 +121,11 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	var selectedMonth = getMonthStart(time.Now())
 	monthlyLabel := widget.NewLabel("")
 
-	updateMonthly := func() {
+	var updateMonthly func()
+	updateMonthly = func() {
 		end := selectedMonth.AddDate(0, 1, -1)
 		monthlyLabel.SetText("Report for " + selectedMonth.Format("January 2006"))
-		refreshReport(monthlyContent, selectedMonth, end)
+		refreshReport(monthlyContent, selectedMonth, end, updateMonthly)
 	}
 	updateMonthly()
 
@@ -149,10 +156,11 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	
 	var startBtn, endBtn *widget.Button
 
-	updateCustom := func() {
+	var updateCustom func()
+	updateCustom = func() {
 		startBtn.SetText(startDate.Format("2006-01-02"))
 		endBtn.SetText(endDate.Format("2006-01-02"))
-		refreshReport(customContent, startDate, endDate)
+		refreshReport(customContent, startDate, endDate, updateCustom)
 	}
 
 	pickDate := func(current time.Time, onSelect func(time.Time)) {
@@ -210,7 +218,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	)
 }
 
-func (r *Reports) renderHistory(entries []models.TimeEntry) fyne.CanvasObject {
+func (r *Reports) renderHistory(entries []models.TimeEntry, onRefresh func()) fyne.CanvasObject {
 	if len(entries) == 0 {
 		return widget.NewLabel("No entries found for this period.")
 	}
@@ -234,18 +242,14 @@ func (r *Reports) renderHistory(entries []models.TimeEntry) fyne.CanvasObject {
 	summaryLabel := widget.NewLabel(summaryText)
 
 	// List
-	// Use a simple VBox with Scroll for now as NewList might be overkill or tricky to update 
-	// inside a completely regenerated view without keeping state. 
-	// But NewList is more efficient. Let's use NewList with a fixed data source.
-	
 	listData := entries // local copy
 	
 	listView := widget.NewList(
 		func() int { return len(listData) },
 		func() fyne.CanvasObject {
-			return container.NewBorder(nil, nil, 
-				widget.NewLabel("00:00:00"), 
-				nil,
+			// Reusing layout similar to dashboard
+			return container.NewBorder(nil, nil, nil,
+				container.NewHBox(widget.NewLabel("00:00:00"), widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), nil), widget.NewButtonWithIcon("", theme.DeleteIcon(), nil)),
 				container.NewVBox(
 					widget.NewLabelWithStyle("Title", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
 					widget.NewLabelWithStyle("Date", fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
@@ -257,7 +261,11 @@ func (r *Reports) renderHistory(entries []models.TimeEntry) fyne.CanvasObject {
 			entry := listData[len(listData)-1-i] 
 			
 			box := o.(*fyne.Container)
-			durLabel := box.Objects[1].(*widget.Label)
+			rightBox := box.Objects[1].(*fyne.Container)
+			durLabel := rightBox.Objects[0].(*widget.Label)
+			editBtn := rightBox.Objects[1].(*widget.Button)
+			delBtn := rightBox.Objects[2].(*widget.Button)
+			
 			infoBox := box.Objects[0].(*fyne.Container)
 			titleLabel := infoBox.Objects[0].(*widget.Label)
 			dateLabel := infoBox.Objects[1].(*widget.Label)
@@ -269,10 +277,26 @@ func (r *Reports) renderHistory(entries []models.TimeEntry) fyne.CanvasObject {
 			if entry.EndTime.IsZero() {
 				dur = time.Since(entry.StartTime)
 				durLabel.TextStyle = fyne.TextStyle{Italic: true}
+				editBtn.Disable() // Disable edit for running tasks
 			} else {
 				durLabel.TextStyle = fyne.TextStyle{}
+				editBtn.Enable()
 			}
 			durLabel.SetText(formatDuration(dur))
+			
+			editBtn.OnTapped = func() {
+				r.showEditDialog(entry, onRefresh)
+			}
+			delBtn.OnTapped = func() {
+				parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+				dialog.ShowConfirm("Confirm Deletion", "Are you sure you want to delete this task?", func(confirmed bool) {
+					if !confirmed {
+						return
+					}
+					r.storage.DeleteEntry(entry)
+					onRefresh()
+				}, parentWindow)
+			}
 		},
 	)
 
@@ -281,4 +305,59 @@ func (r *Reports) renderHistory(entries []models.TimeEntry) fyne.CanvasObject {
 		nil, nil, nil, 
 		listView,
 	)
+}
+
+func (r *Reports) showEditDialog(entry models.TimeEntry, onSuccess func()) {
+	descEntry := widget.NewEntry()
+	descEntry.SetText(entry.Description)
+
+	startEntry := widget.NewEntry()
+	startEntry.SetText(entry.StartTime.Format("2006-01-02 15:04:05"))
+
+	endEntry := widget.NewEntry()
+	if !entry.EndTime.IsZero() {
+		endEntry.SetText(entry.EndTime.Format("2006-01-02 15:04:05"))
+	}
+
+	items := []*widget.FormItem{
+		widget.NewFormItem("Description", descEntry),
+		widget.NewFormItem("Start Time", startEntry),
+		widget.NewFormItem("End Time", endEntry),
+	}
+
+	parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+	dlg := dialog.NewForm("Edit Task", "Save", "Cancel", items, func(b bool) {
+		if !b {
+			return
+		}
+
+		newDesc := descEntry.Text
+		newStart, err1 := time.Parse("2006-01-02 15:04:05", startEntry.Text)
+		newEnd, err2 := time.Parse("2006-01-02 15:04:05", endEntry.Text)
+
+		if err1 != nil || (endEntry.Text != "" && err2 != nil) {
+			// Show error? For now just return
+			fmt.Println("Error parsing time")
+			return
+		}
+
+		// Update entry
+		oldEntry := entry
+		entry.Description = newDesc
+		entry.StartTime = newStart
+		if endEntry.Text != "" {
+			entry.EndTime = newEnd
+			entry.Duration = int64(newEnd.Sub(newStart).Seconds())
+		}
+
+		// If start date changed, we need to delete old and save new
+		if oldEntry.StartTime.Format("2006-01-02") != entry.StartTime.Format("2006-01-02") {
+			r.storage.DeleteEntry(oldEntry)
+		}
+
+		r.storage.SaveEntry(entry)
+		onSuccess()
+	}, parentWindow)
+	dlg.Resize(fyne.NewSize(parentWindow.Canvas().Size().Width, dlg.MinSize().Height))
+	dlg.Show()
 }
