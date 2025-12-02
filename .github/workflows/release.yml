@@ -13,46 +13,76 @@ jobs:
         runs-on: ubuntu-latest
         env: # Added environment variable for VERSION
             VERSION: ${{ github.ref_name }} # e.g. v1.0.0 from refs/tags/v1.0.0
+        strategy:
+            matrix:
+                target_os: [linux, windows]
+                goarch: [amd64]
+
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
 
-            - name: Setup Go
+            - name: Set up Go
               uses: actions/setup-go@v5
               with:
-                  go-version: "1.24"
+                  go-version: "1.24" # Use the Go version you need
 
-            - name: Install dependencies
+            - name: Install Fyne dependencies (Linux host for Linux target)
+              if: matrix.target_os == 'linux'
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y zip xz-utils
+                  sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev
 
-            - name: Install fyne-cross
-              run: go install github.com/fyne-io/fyne-cross@latest
+            - name: Install MinGW-w64 (for Windows cross-compilation)
+              if: matrix.target_os == 'windows'
+              uses: egor-tensin/setup-mingw@v2
+              with:
+                  platform: x64
 
-            - name: Build for Linux
+            - name: Build for ${{ matrix.target_os }}
+              env:
+                  GOOS: ${{ matrix.target_os }}
+                  GOARCH: ${{ matrix.goarch }}
+                  CGO_ENABLED: 1
+                  CC: ${{ matrix.target_os == 'windows' && 'x86_64-w64-mingw32-gcc' || '' }}
               run: |
-                  fyne-cross linux -arch=amd64 -app-id com.highercomve.task-tracker -name task-tracker -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=${{ env.VERSION }}'" ./cmd/mytracker
+                  go mod tidy
+                  BINARY_NAME="tasktracker-${{ matrix.target_os }}-${{ matrix.goarch }}"
+                  if [ "${{ matrix.target_os }}" == "windows" ]; then
+                    BINARY_NAME="${BINARY_NAME}.exe"
+                  fi
+                  go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=${{ env.VERSION }}'" -o "${BINARY_NAME}" ./cmd/tasktracker
+                  echo "BUILT_BINARY_NAME=${BINARY_NAME}" >> $GITHUB_ENV
 
-            - name: Build for Windows
+            - name: Prepare archives for Linux
+              if: matrix.target_os == 'linux'
               run: |
-                  fyne-cross windows -arch=amd64 -app-id com.highercomve.task-tracker -name task-tracker -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=${{ env.VERSION }}'" ./cmd/mytracker
+                  mkdir -p dist/linux-amd64
+                  tar -cJf dist/linux-amd64/tasktracker-linux-amd64.tar.xz ${{ env.BUILT_BINARY_NAME }}
+            - name: Upload Linux artifact
+              if: matrix.target_os == 'linux'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: tasktracker-linux-amd64.tar.xz
+                  path: dist/linux-amd64/tasktracker-linux-amd64.tar.xz
 
-            - name: Package Linux
+            - name: Prepare archives for Windows
+              if: matrix.target_os == 'windows'
               run: |
-                  mkdir -p fyne-cross/dist/linux-amd64
-                  cd fyne-cross/bin/linux-amd64
-                  tar -cJf ../../dist/linux-amd64/task-tracker.tar.xz task-tracker
+                  mkdir -p dist/windows-amd64
+                  zip dist/windows-amd64/tasktracker-windows-amd64.zip ${{ env.BUILT_BINARY_NAME }}
+            - name: Upload Windows artifact
+              if: matrix.target_os == 'windows'
+              uses: actions/upload-artifact@v4
+              with:
+                  name: tasktracker-windows-amd64.zip
+                  path: dist/windows-amd64/tasktracker-windows-amd64.zip
 
-            - name: Package Windows
-              run: |
-                  mkdir -p fyne-cross/dist/windows-amd64
-                  cd fyne-cross/bin/windows-amd64
-                  zip ../../dist/windows-amd64/task-tracker.zip task-tracker.exe
+
 
             - name: Create Release
               uses: softprops/action-gh-release@v2
               with:
                   files: |
-                      fyne-cross/dist/linux-amd64/task-tracker.tar.xz
-                      fyne-cross/dist/windows-amd64/task-tracker.zip
+                      dist/linux-amd64/tasktracker-linux-amd64.tar.xz
+                      dist/windows-amd64/tasktracker-windows-amd64.zip
