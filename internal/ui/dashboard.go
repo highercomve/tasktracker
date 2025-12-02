@@ -66,6 +66,17 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 		d.refreshList()
 	})
 
+	entry.OnSubmitted = func(text string) {
+		if text == "" {
+			return
+		}
+		d.startTask(text)
+		btn.SetText("Stop")
+		btn.SetIcon(theme.MediaStopIcon())
+		entry.SetText("")
+		d.refreshList()
+	}
+
 	// List
 	// Let's use simple list for MVP
 	simpleList := widget.NewList(
