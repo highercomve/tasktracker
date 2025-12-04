@@ -2,11 +2,29 @@ BINARY_NAME=tasktracker
 ENTRY_POINT=./cmd/tasktracker
 VERSION=$(shell git describe --tags --always --dirty="-dev" --abbrev=7)
 LINUX_AMD64_LIBS = /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu
+LINUX_ARM64_LIBS = /usr/lib /usr/lib64 /usr/lib/aarch64-linux-gnu
+LINUX_ARM_LIBS = /usr/lib /usr/lib64 /usr/lib/arm-linux-gnueabihf
 LINUX_AMD64_LDFLAGS = $(foreach dir,$(wildcard $(LINUX_AMD64_LIBS)),-L$(dir))
+LINUX_ARM64_LDFLAGS = $(foreach dir,$(wildcard $(LINUX_ARM64_LIBS)),-L$(dir))
+LINUX_ARM_LDFLAGS = $(foreach dir,$(wildcard $(LINUX_ARM_LIBS)),-L$(dir))
 
-.PHONY: all build run clean test deps build-linux build-windows build-linux-arm64 build-windows-arm64 build-windows-all
+EXE_EXT_windows = .exe
+EXE_EXT_linux =
 
-all: build-linux build-windows
+ZIG_CC_FLAGS_windows = -Wdeprecated-non-prototype -Wl,--subsystem,windows
+ZIG_CC_FLAGS_linux-amd64 = -isystem /usr/include $(LINUX_AMD64_LDFLAGS) # Native build
+ZIG_CC_FLAGS_linux-arm64 = -isystem /usr/include $(LINUX_ARM64_LDFLAGS)
+ZIG_CC_FLAGS_linux-arm = -isystem /usr/include $(LINUX_ARM_LDFLAGS)
+
+ZIG_TARGET_linux-amd64 = x86_64-linux-gnu
+ZIG_TARGET_linux-arm64 = aarch64-linux-gnu
+ZIG_TARGET_linux-arm = arm-linux-gnueabihf
+ZIG_TARGET_windows-amd64 = x86_64-windows-gnu
+ZIG_TARGET_windows-arm64 = aarch64-windows-gnu
+
+.PHONY: all build run clean test deps build-linux build-windows debian-deps arch-deps
+
+all: build-linux-amd64 build-windows-amd64
 
 build:
 	go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" -o $(BINARY_NAME) $(ENTRY_POINT)
@@ -24,14 +42,30 @@ test:
 deps:
 	go mod tidy
 
-build-linux: deps
-	@echo "Building for Linux (amd64)"
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=1 CC="zig cc -target x86_64-linux-gnu -isystem /usr/include $(LINUX_AMD64_LDFLAGS)" CXX="zig c++ -target x86_64-linux-gnu -isystem /usr/include $(LINUX_AMD64_LDFLAGS)" go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" -o dist/linux-amd64/$(BINARY_NAME) $(ENTRY_POINT)
+# Generic build rule for cross-compilation
+# Usage: make build-OS-ARCH (e.g., make build-linux-amd64)
+build-%: deps
+	$(eval GOOS := $(word 1,$(subst -, ,$*)))
+	$(eval GOARCH := $(word 2,$(subst -, ,$*)))
+	@echo "Building for $(GOOS) ($(GOARCH))"
+	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 \
+	CC="zig cc -target $(ZIG_TARGET_$*) $(ZIG_CC_FLAGS_$*)" \
+	CXX="zig c++ -target $(ZIG_TARGET_$*) $(ZIG_CC_FLAGS_$*)" \
+	go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" -o dist/$*/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) $(ENTRY_POINT)
 
-build-windows: deps
-	@echo "Building for Windows (amd64)"
-	GOOS=windows GOARCH=amd64 CGO_ENABLED=1 CC="zig cc -target x86_64-windows-gnu -Wdeprecated-non-prototype -Wl,--subsystem,windows" CXX="zig c++ -target x86_64-windows-gnu -Wdeprecated-non-prototype -Wl,--subsystem,windows" go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" -o dist/windows-amd64/$(BINARY_NAME).exe $(ENTRY_POINT)
+# Alias for backward compatibility
+build-linux: build-linux-amd64
+build-windows: build-windows-amd64
 
-build-windows-arm64: deps
-	@echo "Building for Windows (arm64)"
-	GOOS=windows GOARCH=arm64 CGO_ENABLED=1 CC="zig cc -target aarch64-windows-gnu -Wdeprecated-non-prototype -Wl,--subsystem,windows" CXX="zig c++ -target aarch64-windows-gnu -Wdeprecated-non-prototype -Wl,--subsystem,windows" go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" -o dist/windows-arm64/$(BINARY_NAME).exe $(ENTRY_POINT)
+debian-deps:
+	@echo "Installing Debian/Ubuntu dependencies for Fyne build..."
+	sudo apt-get update && sudo apt-get install -y \
+	build-essential libgl1-mesa-dev xorg-dev libxcursor-dev libxrandr-dev \
+	libxi-dev libxkbcommon-dev gcc linux-libc-dev libxxf86vm-dev
+
+
+arch-deps:
+	@echo "Installing Arch Linux dependencies for Fyne build..."
+	sudo pacman -Syu --needed base-devel mesa libxkbcommon \
+	aarch64-linux-gnu-gcc aarch64-linux-gnu-libx11 aarch64-linux-gnu-libxcursor aarch64-linux-gnu-libxrandr aarch64-linux-gnu-libxinerama aarch64-linux-gnu-libxi aarch64-linux-gnu-libxkbcommon \
+	arm-linux-gnueabihf-gcc arm-linux-gnueabihf-libx11 arm-linux-gnueabihf-libxcursor arm-linux-gnueabihf-libxrandr arm-linux-gnueabihf-libxinerama arm-linux-gnueabihf-libxi arm-linux-gnueabihf-libxkbcommon
