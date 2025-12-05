@@ -36,6 +36,7 @@ run:
 
 clean:
 	go clean
+	rm -f tasktracker*
 	rm -rf dist
 	rm -rf fyne-cross
 
@@ -62,10 +63,10 @@ build-windows: build-windows-amd64
 
 release: release-linux-amd64 release-linux-arm64 release-windows-amd64
 
-release-linux-%: build-linux-%
+release-linux-%: package-linux-%
 	cd dist/linux-$* && tar -cJf ../../tasktracker-linux-$*.tar.xz tasktracker
 
-release-windows-%: build-windows-%
+release-windows-%: package-windows-%
 	cd dist/windows-$* && zip ../../tasktracker-windows-$*.zip tasktracker.exe
 
 debian-deps:
