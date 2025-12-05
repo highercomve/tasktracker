@@ -51,7 +51,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		dailyLabel.SetText("Report for " + selectedDay.Format("Mon, 02 Jan 2006"))
 		refreshReport(dailyContent, selectedDay, selectedDay, updateDaily)
 	}
-	updateDaily() // Initial
+	// updateDaily() // Initial moved to OnSelected
 
 	dailyTab := container.NewBorder(
 		container.NewHBox(
@@ -91,7 +91,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		weeklyLabel.SetText(fmt.Sprintf("Week %s - %s", selectedWeekStart.Format("Jan 02"), end.Format("Jan 02")))
 		refreshReport(weeklyContent, selectedWeekStart, end, updateWeekly)
 	}
-	updateWeekly()
+	// updateWeekly() // Initial moved to OnSelected
 
 	weeklyTab := container.NewBorder(
 		container.NewHBox(
@@ -127,7 +127,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		monthlyLabel.SetText("Report for " + selectedMonth.Format("January 2006"))
 		refreshReport(monthlyContent, selectedMonth, end, updateMonthly)
 	}
-	updateMonthly()
+	// updateMonthly() // Initial moved to OnSelected
 
 	monthlyTab := container.NewBorder(
 		container.NewHBox(
@@ -195,7 +195,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		})
 	})
 
-	updateCustom() // Initial
+	// updateCustom() // Initial moved to OnSelected
 
 	customTab := container.NewBorder(
 		container.NewHBox(
@@ -210,12 +210,29 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		customContent,
 	)
 
-	return container.NewAppTabs(
+	tabs := container.NewAppTabs(
 		container.NewTabItem("Daily", dailyTab),
 		container.NewTabItem("Weekly", weeklyTab),
 		container.NewTabItem("Monthly", monthlyTab),
 		container.NewTabItem("Custom Range", customTab),
 	)
+
+	tabs.OnSelected = func(item *container.TabItem) {
+		switch item.Text {
+		case "Daily":
+			updateDaily()
+		case "Weekly":
+			updateWeekly()
+		case "Monthly":
+			updateMonthly()
+		case "Custom Range":
+			updateCustom()
+		}
+	}
+	// Select initial tab to trigger data load
+	tabs.SelectIndex(0)
+
+	return tabs
 }
 
 func (r *Reports) renderHistory(entries []models.TimeEntry, onRefresh func()) fyne.CanvasObject {
