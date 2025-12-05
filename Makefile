@@ -22,7 +22,7 @@ ZIG_TARGET_linux-arm = arm-linux-gnueabihf
 ZIG_TARGET_windows-amd64 = x86_64-windows-gnu
 ZIG_TARGET_windows-arm64 = aarch64-windows-gnu
 
-.PHONY: all build run clean test deps build-linux build-windows debian-deps arch-deps
+.PHONY: all build run clean test deps build-linux build-windows debian-deps arch-deps release
 
 all: build-linux-amd64 build-windows-amd64
 
@@ -35,6 +35,7 @@ run:
 clean:
 	go clean
 	rm -rf dist
+	rm -rf fyne-cross
 
 test:
 	go test -v ./...
@@ -57,6 +58,14 @@ build-%: deps
 build-linux: build-linux-amd64
 build-windows: build-windows-amd64
 
+release: release-linux-amd64 release-linux-arm64 release-windows-amd64
+
+release-linux-%: build-linux-%
+	cd dist/linux-$* && tar -cJf ../../tasktracker-linux-$*.tar.xz tasktracker
+
+release-windows-%: build-windows-%
+	cd dist/windows-$* && zip ../../tasktracker-windows-$*.zip tasktracker.exe
+
 debian-deps:
 	@echo "Installing Debian/Ubuntu dependencies for Fyne build..."
 	sudo apt-get update && sudo apt-get install -y \
@@ -71,7 +80,6 @@ arch-deps:
 	arm-linux-gnueabihf-gcc arm-linux-gnueabihf-libx11 arm-linux-gnueabihf-libxcursor arm-linux-gnueabihf-libxrandr arm-linux-gnueabihf-libxinerama arm-linux-gnueabihf-libxi arm-linux-gnueabihf-libxkbcommon
 
 package-%: go.mod $(wildcard cmd/*.go)
-	@mkdir -p dist/
 	$(eval GOOS := $(word 1,$(subst -, ,$*)))
 	$(eval GOARCH := $(word 2,$(subst -, ,$*)))
 	@echo "Building CLI for $(GOOS) ($(GOARCH))"
@@ -80,6 +88,7 @@ package-%: go.mod $(wildcard cmd/*.go)
 		-name $(BINARY_NAME)$(EXE_EXT_$(GOOS)) \
 		-icon Icon.png \
 		--app-id com.highercomve.tasktracker \
-		-ldflags="github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)-dev" \
+		-ldflags="github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)" \
 		$(ENTRY_POINT)
+	@mkdir -p dist/$(GOOS)-$(GOARCH)
 	cp fyne-cross/bin/$(GOOS)-$(GOARCH)/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) dist/$(GOOS)-$(GOARCH)/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) 
