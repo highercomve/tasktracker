@@ -28,28 +28,16 @@ jobs:
             - name: Install Linux dependencies
               run: |
                   sudo dpkg --add-architecture arm64
-                  # Restrict current sources to amd64 to avoid 404s on arm64
-                  sudo sed -i 's/^deb/deb [arch=amd64]/' /etc/apt/sources.list
-                  # Add arm64 ports
-                  sudo bash -c 'cat <<EOF >> /etc/apt/sources.list
-                  deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs) main restricted universe multiverse
-                  deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-updates main restricted universe multiverse
-                  deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports/ $(lsb_release -cs)-security main restricted universe multiverse
-                  EOF'
                   sudo apt-get update
-                  sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev
-                  sudo apt-get install -y libgl1-mesa-dev:arm64 libx11-dev:arm64 libxcursor-dev:arm64 libxrandr-dev:arm64 libxinerama-dev:arm64 libxi-dev:arm64 libxkbcommon-dev:arm64 libxxf86vm-dev:arm64
-
+                  sudo apt-get install -y libgl1-mesa-dev xorg-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev xkbcommon-dev
             - name: Build Releases
               run: |
                   make build-linux-amd64
-                  make build-linux-arm64
                   make build-windows-amd64
 
             - name: Package Releases
               run: |
                   cd dist/linux-amd64 && tar -cJf ../../tasktracker-linux-amd64.tar.xz tasktracker && cd ../..
-                  cd dist/linux-arm64 && tar -cJf ../../tasktracker-linux-arm64.tar.xz tasktracker && cd ../..
                   cd dist/windows-amd64 && zip ../../tasktracker-windows-amd64.zip tasktracker.exe && cd ../..
 
             - name: Create Release
@@ -57,5 +45,4 @@ jobs:
               with:
                   files: |
                       tasktracker-linux-amd64.tar.xz
-                      tasktracker-linux-arm64.tar.xz
                       tasktracker-windows-amd64.zip
