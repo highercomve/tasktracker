@@ -28,7 +28,7 @@ jobs:
             - name: Install Linux dependencies
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y libgl1-mesa-dev xorg-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev xkbcommon-dev
+                  sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev
             - name: Build Releases
               run: |
                   make build-linux-amd64
