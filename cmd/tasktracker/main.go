@@ -27,7 +27,7 @@ var userConfigFilePath string
 
 func setupViper() {
 	viper.SetConfigName("tasktracker") // name of config file (without extension)
-	viper.SetConfigType("yaml")       // or viper.SetConfigType("YAML")
+	viper.SetConfigType("yaml")        // or viper.SetConfigType("YAML")
 
 	// Determine the user config directory
 	configHome := os.Getenv("XDG_CONFIG_HOME")
@@ -70,11 +70,14 @@ func setupViper() {
 func main() {
 	setupViper()
 	os.Setenv("FYNE_SCALE", "auto")
-	// Call self-update check at startup
-	err := updater.SelfUpdate("highercomve", "tasktracker") // Replace with actual GitHub owner and repo
-	if err != nil {
-		log.Printf("Self-update failed: %v", err) // Use log for errors
-	}
+
+	go func() {
+		// Call self-update check at startup
+		err := updater.SelfUpdate("highercomve", "tasktracker") // Replace with actual GitHub owner and repo
+		if err != nil {
+			log.Printf("Self-update failed: %v", err) // Use log for errors
+		}
+	}()
 
 	a := app.NewWithID("com.highercomve.task-tracker")
 	a.Settings().SetTheme(theme.DarkTheme())
