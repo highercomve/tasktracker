@@ -69,3 +69,17 @@ arch-deps:
 	sudo pacman -Syu --needed base-devel mesa libxkbcommon \
 	aarch64-linux-gnu-gcc aarch64-linux-gnu-libx11 aarch64-linux-gnu-libxcursor aarch64-linux-gnu-libxrandr aarch64-linux-gnu-libxinerama aarch64-linux-gnu-libxi aarch64-linux-gnu-libxkbcommon \
 	arm-linux-gnueabihf-gcc arm-linux-gnueabihf-libx11 arm-linux-gnueabihf-libxcursor arm-linux-gnueabihf-libxrandr arm-linux-gnueabihf-libxinerama arm-linux-gnueabihf-libxi arm-linux-gnueabihf-libxkbcommon
+
+package-%: go.mod $(wildcard cmd/*.go)
+	@mkdir -p dist/
+	$(eval GOOS := $(word 1,$(subst -, ,$*)))
+	$(eval GOARCH := $(word 2,$(subst -, ,$*)))
+	@echo "Building CLI for $(GOOS) ($(GOARCH))"
+	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 \
+	fyne-cross $(GOOS) -arch=$(GOARCH) \
+		-name $(BINARY_NAME)$(EXE_EXT_$(GOOS)) \
+		-icon Icon.png \
+		--app-id com.highercomve.tasktracker \
+		-ldflags="github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)-dev" \
+		$(ENTRY_POINT)
+	cp fyne-cross/bin/$(GOOS)-$(GOARCH)/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) dist/$(GOOS)-$(GOARCH)/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) 

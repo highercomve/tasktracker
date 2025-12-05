@@ -1,7 +1,14 @@
 package main
 
 import (
+	_ "embed" // Required for go:embed
+
 	"log"
+	"os"
+	"path/filepath"
+	"runtime"
+
+	"github.com/spf13/viper"
 
 	"github.com/highercomve/tasktracker/internal/store"
 	"github.com/highercomve/tasktracker/internal/ui"
@@ -10,9 +17,59 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/theme"
 )
 
+//go:embed Icon.png
+var embeddedIconBytes []byte
+
+var userConfigFilePath string
+
+func setupViper() {
+	viper.SetConfigName("tasktracker") // name of config file (without extension)
+	viper.SetConfigType("yaml")       // or viper.SetConfigType("YAML")
+
+	// Determine the user config directory
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			log.Fatalf("Error getting user home directory: %v", err)
+		}
+		if runtime.GOOS == "windows" {
+			configHome = filepath.Join(homeDir, "AppData", "Roaming")
+		} else {
+			configHome = filepath.Join(homeDir, ".config")
+		}
+	}
+
+	// Set the full path to the user's config file
+	userConfigFilePath = filepath.Join(configHome, "tasktracker", "tasktracker.yml")
+	viper.SetConfigFile(userConfigFilePath)
+
+	// Ensure the config directory exists
+	err := os.MkdirAll(filepath.Dir(userConfigFilePath), 0755)
+	if err != nil {
+		log.Fatalf("Error creating config directory: %v", err)
+	}
+
+	viper.SetDefault("data_folder", "./data")
+
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok || os.IsNotExist(err) {
+			log.Println("Config file not found; creating one with default values")
+			if err := viper.WriteConfigAs(userConfigFilePath); err != nil {
+				log.Fatalf("Error creating config file: %v", err)
+			}
+		} else {
+			log.Fatalf("Error reading config file: %v", err)
+		}
+	}
+}
+
 func main() {
+	setupViper()
+	os.Setenv("FYNE_SCALE", "auto")
 	// Call self-update check at startup
 	err := updater.SelfUpdate("highercomve", "tasktracker") // Replace with actual GitHub owner and repo
 	if err != nil {
@@ -20,32 +77,29 @@ func main() {
 	}
 
 	a := app.NewWithID("com.highercomve.task-tracker")
-	// Simple red dot PNG
-	// iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
-	var resourceIconPng = fyne.NewStaticResource("icon.png", []byte{
-		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
-		0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0xfc, 0xcf, 0xc0, 0x50,
-		0x0f, 0x00, 0x04, 0x85, 0x01, 0x80, 0x84, 0xa9, 0x8c, 0x21, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45,
-		0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
-	})
+	a.Settings().SetTheme(theme.DarkTheme())
 
-	a.SetIcon(resourceIconPng)
+	// Convert embedded bytes to a Fyne Resource
+	iconResource := fyne.NewStaticResource("myappicon.png", embeddedIconBytes)
+	a.SetIcon(iconResource)
+
 	w := a.NewWindow("Task Tracker")
 	w.Resize(fyne.NewSize(400, 600))
 
-	storage := store.NewStorage("data")
+	storage := store.NewStorage(viper.GetString("data_folder"))
 	dashboard := ui.NewDashboard(storage)
 	reports := ui.NewReports(storage)
+	configUI := ui.NewConfig(w, storage, userConfigFilePath)
 
 	tabs := container.NewAppTabs(
 		container.NewTabItem("Tracker", dashboard.MakeUI()),
 		container.NewTabItem("Reports", reports.MakeUI()),
+		container.NewTabItem("Config", configUI.MakeUI()),
 	)
 
 	w.SetContent(tabs)
 
-	ui.SetupTray(a, w, resourceIconPng)
+	ui.SetupTray(a, w, iconResource, dashboard)
 
 	w.ShowAndRun()
 }

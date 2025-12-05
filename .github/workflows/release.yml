@@ -27,17 +27,21 @@ jobs:
 
             - name: Install Linux dependencies
               run: |
+                  sudo dpkg --add-architecture arm64
                   sudo apt-get update
                   sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev
+                  sudo apt-get install -y libgl1-mesa-dev:arm64 libx11-dev:arm64 libxcursor-dev:arm64 libxrandr-dev:arm64 libxinerama-dev:arm64 libxi-dev:arm64 libxkbcommon-dev:arm64 libxxf86vm-dev:arm64
 
-            - name: Build Linux and Windows (amd64)
+            - name: Build Releases
               run: |
-                  make build-linux
-                  make build-windows
+                  make build-linux-amd64
+                  make build-linux-arm64
+                  make build-windows-amd64
 
             - name: Package Releases
               run: |
                   cd dist/linux-amd64 && tar -cJf ../../tasktracker-linux-amd64.tar.xz tasktracker && cd ../..
+                  cd dist/linux-arm64 && tar -cJf ../../tasktracker-linux-arm64.tar.xz tasktracker && cd ../..
                   cd dist/windows-amd64 && zip ../../tasktracker-windows-amd64.zip tasktracker.exe && cd ../..
 
             - name: Create Release
@@ -45,4 +49,5 @@ jobs:
               with:
                   files: |
                       tasktracker-linux-amd64.tar.xz
+                      tasktracker-linux-arm64.tar.xz
                       tasktracker-windows-amd64.zip

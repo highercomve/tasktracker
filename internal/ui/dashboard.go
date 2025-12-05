@@ -23,6 +23,7 @@ type Dashboard struct {
 	taskList    []models.TimeEntry
 	activeID    string
 	activeStart time.Time
+	startBtn    *widget.Button
 	refreshList func()
 }
 
@@ -46,21 +47,18 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 	entry.PlaceHolder = "What are you working on?"
 
 	// Start/Stop Button
-	var btn *widget.Button
-	btn = widget.NewButtonWithIcon("Start", theme.MediaPlayIcon(), func() {
+	d.startBtn = widget.NewButtonWithIcon("Start", theme.MediaPlayIcon(), func() {
 		if d.activeID != "" {
 			// Stop
-			d.stopTask()
-			btn.SetText("Start")
-			btn.SetIcon(theme.MediaPlayIcon())
+			d.StopTask()
 		} else {
 			// Start
 			if entry.Text == "" {
 				return
 			}
 			d.startTask(entry.Text)
-			btn.SetText("Stop")
-			btn.SetIcon(theme.MediaStopIcon())
+			d.startBtn.SetText("Stop")
+			d.startBtn.SetIcon(theme.MediaStopIcon())
 			entry.SetText("")
 		}
 		d.refreshList()
@@ -71,8 +69,8 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 			return
 		}
 		d.startTask(text)
-		btn.SetText("Stop")
-		btn.SetIcon(theme.MediaStopIcon())
+		d.startBtn.SetText("Stop")
+		d.startBtn.SetIcon(theme.MediaStopIcon())
 		entry.SetText("")
 		d.refreshList()
 	}
@@ -147,10 +145,10 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 	}()
 
 	// Check for active task on load
-	d.checkForActiveTask(btn)
+	d.checkForActiveTask(d.startBtn)
 
 	return container.NewBorder(
-		container.NewVBox(timerLabel, container.NewBorder(nil, nil, nil, btn, entry)),
+		container.NewVBox(timerLabel, container.NewBorder(nil, nil, nil, d.startBtn, entry)),
 		nil, nil, nil,
 		simpleList,
 	)
@@ -184,11 +182,15 @@ func (d *Dashboard) startTask(desc string) {
 	d.activeStart = entry.StartTime
 }
 
-func (d *Dashboard) stopTask() {
+func (d *Dashboard) StopTask() {
 	d.storage.StopActiveTask(time.Now())
 	d.activeID = ""
 	d.activeStart = time.Time{}
 	d.timerData.Set("00:00:00")
+	if d.startBtn != nil {
+		d.startBtn.SetText("Start")
+		d.startBtn.SetIcon(theme.MediaPlayIcon())
+	}
 }
 
 func (d *Dashboard) showEditDialog(entry models.TimeEntry) {

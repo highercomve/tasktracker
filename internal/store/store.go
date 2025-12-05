@@ -17,8 +17,53 @@ type Storage struct {
 
 func NewStorage(baseDir string) *Storage {
 	// Ensure base directory exists
-	os.MkdirAll(filepath.Join(baseDir, "entries"), 0755)
-	return &Storage{BaseDir: baseDir}
+	s := &Storage{BaseDir: baseDir}
+	s.ensureDir()
+	return s
+}
+
+func (s *Storage) ensureDir() {
+	os.MkdirAll(filepath.Join(s.BaseDir, "entries"), 0755)
+}
+
+// UpdateBaseDir updates the base directory and ensures it exists.
+func (s *Storage) UpdateBaseDir(newDir string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.BaseDir = newDir
+	s.ensureDir()
+}
+
+// MoveData attempts to move the data from the current directory to the new one.
+func (s *Storage) MoveData(newDir string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	oldEntriesPath := filepath.Join(s.BaseDir, "entries")
+	newEntriesPath := filepath.Join(newDir, "entries")
+
+	// Check if old data exists
+	if _, err := os.Stat(oldEntriesPath); os.IsNotExist(err) {
+		// Nothing to move, just update dir
+		s.BaseDir = newDir
+		s.ensureDir()
+		return nil
+	}
+
+	// Ensure new parent dir exists
+	if err := os.MkdirAll(newDir, 0755); err != nil {
+		return err
+	}
+
+	// Try to move
+	if err := os.Rename(oldEntriesPath, newEntriesPath); err != nil {
+		return err
+	}
+
+	// Success
+	s.BaseDir = newDir
+	s.ensureDir() // basically a no-op but good for consistency
+	return nil
 }
 
 // getEntryFilePath returns the path for a specific date's entry file.
