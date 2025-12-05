@@ -11,8 +11,8 @@ func SetupTray(a fyne.App, w fyne.Window, icon fyne.Resource, d *Dashboard) {
 			fyne.NewMenuItem("Show", func() {
 				w.Show()
 			}),
-			fyne.NewMenuItem("Pause", func() {
-				d.StopTask()
+			fyne.NewMenuItem("Pause/Resume", func() {
+				d.TogglePause()
 			}),
 			fyne.NewMenuItem("Stop", func() {
 				d.StopTask()

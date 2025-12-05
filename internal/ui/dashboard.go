@@ -17,13 +17,20 @@ import (
 )
 
 type Dashboard struct {
-	storage     *store.Storage
-	timerData   binding.String
-	entries     binding.ExternalStringList
-	taskList    []models.TimeEntry
-	activeID    string
-	activeStart time.Time
+	storage   *store.Storage
+	timerData binding.String
+	taskList  []models.TimeEntry
+
+	// State
+	activeID            string
+	activeOriginalStart time.Time
+	activeLastStart     time.Time
+	accumulated         int64
+	activeState         int
+
+	// UI
 	startBtn    *widget.Button
+	pauseBtn    *widget.Button
 	refreshList func()
 }
 
@@ -46,37 +53,46 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 	entry := widget.NewEntry()
 	entry.PlaceHolder = "What are you working on?"
 
-	// Start/Stop Button
-	d.startBtn = widget.NewButtonWithIcon("Start", theme.MediaPlayIcon(), func() {
-		if d.activeID != "" {
+	// Buttons
+	d.startBtn = widget.NewButtonWithIcon("Start", theme.MediaPlayIcon(), nil)
+	d.pauseBtn = widget.NewButtonWithIcon("Pause", theme.MediaPauseIcon(), nil)
+	d.pauseBtn.Disable() // Initially disabled
+
+	d.startBtn.OnTapped = func() {
+		if d.activeState == models.TaskStateRunning || d.activeState == models.TaskStatePaused {
 			// Stop
 			d.StopTask()
+			entry.SetText("")
 		} else {
 			// Start
 			if entry.Text == "" {
 				return
 			}
-			d.startTask(entry.Text)
-			d.startBtn.SetText("Stop")
-			d.startBtn.SetIcon(theme.MediaStopIcon())
+			d.StartTask(entry.Text)
 			entry.SetText("")
 		}
 		d.refreshList()
-	})
+	}
+
+	d.pauseBtn.OnTapped = func() {
+		if d.activeState == models.TaskStateRunning {
+			d.PauseTask()
+		} else if d.activeState == models.TaskStatePaused {
+			d.ResumeTask()
+		}
+		d.refreshList()
+	}
 
 	entry.OnSubmitted = func(text string) {
 		if text == "" {
 			return
 		}
-		d.startTask(text)
-		d.startBtn.SetText("Stop")
-		d.startBtn.SetIcon(theme.MediaStopIcon())
+		d.StartTask(text)
 		entry.SetText("")
 		d.refreshList()
 	}
 
 	// List
-	// Let's use simple list for MVP
 	simpleList := widget.NewList(
 		func() int { return len(d.taskList) },
 		func() fyne.CanvasObject {
@@ -85,6 +101,10 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 				widget.NewLabel("Title"))
 		},
 		func(i int, o fyne.CanvasObject) {
+			// Safety check
+			if i >= len(d.taskList) {
+				return
+			}
 			entry := d.taskList[len(d.taskList)-1-i] // Reverse order
 			box := o.(*fyne.Container)
 			title := box.Objects[0].(*widget.Label)
@@ -94,14 +114,34 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 			delBtn := rightBox.Objects[2].(*widget.Button)
 
 			title.SetText(entry.Description)
-			if entry.EndTime.IsZero() {
-				dur.SetText(formatDuration(time.Since(entry.StartTime)))
+
+			// Calculate duration for display
+			if entry.ID == d.activeID {
+				// Active task - use in-memory state for live update
+				currentDur := time.Duration(d.accumulated) * time.Second
+				if d.activeState == models.TaskStateRunning {
+					currentDur += time.Since(d.activeLastStart)
+				}
+				dur.SetText(formatDuration(currentDur))
 				dur.TextStyle = fyne.TextStyle{Italic: true}
-				editBtn.Disable() // Disable edit for running tasks for now (simpler)
+				editBtn.Disable()
 			} else {
-				dur.SetText(formatDuration(time.Duration(entry.Duration) * time.Second))
-				dur.TextStyle = fyne.TextStyle{Italic: false}
-				editBtn.Enable()
+				// History items
+				if entry.State == models.TaskStatePaused {
+					dur.SetText(formatDuration(time.Duration(entry.Accumulated) * time.Second))
+					dur.TextStyle = fyne.TextStyle{Italic: true}
+					editBtn.Disable()
+				} else if entry.State == models.TaskStateRunning {
+					// Should technically not happen for non-active tasks unless multiple running (bug)
+					// or if activeID mismatch.
+					dur.SetText("Running...")
+					dur.TextStyle = fyne.TextStyle{Italic: true}
+					editBtn.Disable()
+				} else {
+					dur.SetText(formatDuration(time.Duration(entry.Duration) * time.Second))
+					dur.TextStyle = fyne.TextStyle{Italic: false}
+					editBtn.Enable()
+				}
 			}
 
 			editBtn.OnTapped = func() {
@@ -113,6 +153,17 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 					if !confirmed {
 						return
 					}
+
+					// If deleting the active task, clear the active state
+					if entry.ID == d.activeID {
+						d.storage.ClearAppState()
+						d.activeID = ""
+						d.activeState = models.TaskStateStopped
+						d.accumulated = 0
+						d.timerData.Set("00:00:00")
+						d.updateButtons()
+					}
+
 					d.storage.DeleteEntry(entry)
 					d.refreshList()
 				}, parentWindow)
@@ -121,23 +172,29 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 	)
 
 	d.refreshList = func() {
+		// Load today or active date?
+		// If active task is from yesterday, we might want to see it.
+		// But dashboard usually shows "Today".
+		// Let's stick to Today for the list.
 		entries, _ := d.storage.LoadEntries(time.Now())
 		d.taskList = entries
 		simpleList.Refresh()
+		d.updateButtons()
 	}
-	d.refreshList() // Initial load
 
-	// Ticker
 	// Ticker
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		for range ticker.C {
-			// fmt.Println("Ticker fired. ActiveID:", d.activeID)
 			fyne.Do(func() {
-				if d.activeID != "" {
-					dur := time.Since(d.activeStart)
-					// fmt.Println("Updating timer:", dur)
+				if d.activeState == models.TaskStateRunning {
+					dur := time.Duration(d.accumulated)*time.Second + time.Since(d.activeLastStart)
 					d.timerData.Set(formatDuration(dur))
+				} else if d.activeState == models.TaskStatePaused {
+					d.timerData.Set(formatDuration(time.Duration(d.accumulated) * time.Second))
+				} else {
+					// Stopped
+					d.timerData.Set("00:00:00")
 				}
 				simpleList.Refresh()
 			})
@@ -145,52 +202,212 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 	}()
 
 	// Check for active task on load
-	d.checkForActiveTask(d.startBtn)
+	d.checkForActiveTask()
+	d.refreshList() // Initial load
 
 	return container.NewBorder(
-		container.NewVBox(timerLabel, container.NewBorder(nil, nil, nil, d.startBtn, entry)),
+		container.NewVBox(timerLabel, container.NewBorder(nil, nil, nil, container.NewHBox(d.startBtn, d.pauseBtn), entry)),
 		nil, nil, nil,
 		simpleList,
 	)
 }
 
-func (d *Dashboard) checkForActiveTask(btn *widget.Button) {
+func (d *Dashboard) updateButtons() {
+	if d.activeState == models.TaskStateRunning {
+		d.startBtn.SetText("Stop")
+		d.startBtn.SetIcon(theme.MediaStopIcon())
+		d.startBtn.Enable()
+
+		d.pauseBtn.SetText("Pause")
+		d.pauseBtn.SetIcon(theme.MediaPauseIcon())
+		d.pauseBtn.Enable()
+	} else if d.activeState == models.TaskStatePaused {
+		d.startBtn.SetText("Stop")
+		d.startBtn.SetIcon(theme.MediaStopIcon())
+		d.startBtn.Enable()
+
+		d.pauseBtn.SetText("Resume")
+		d.pauseBtn.SetIcon(theme.MediaPlayIcon())
+		d.pauseBtn.Enable()
+	} else {
+		d.startBtn.SetText("Start")
+		d.startBtn.SetIcon(theme.MediaPlayIcon())
+		d.startBtn.Enable()
+
+		d.pauseBtn.SetText("Pause")
+		d.pauseBtn.SetIcon(theme.MediaPauseIcon())
+		d.pauseBtn.Disable()
+	}
+}
+
+func (d *Dashboard) checkForActiveTask() {
+	// Try LoadAppState first
+	state, err := d.storage.LoadAppState()
+	if err == nil && state.ActiveTaskID != "" {
+		entries, _ := d.storage.LoadEntries(state.ActiveTaskDate)
+		for _, e := range entries {
+			if e.ID == state.ActiveTaskID {
+				d.activeID = e.ID
+				d.activeOriginalStart = e.StartTime
+				d.activeLastStart = state.LastStartTime
+				d.accumulated = e.Accumulated
+				d.activeState = e.State
+
+				// If state is blank (legacy), assume running
+				if d.activeState == 0 {
+					d.activeState = models.TaskStateRunning
+				}
+
+				d.updateButtons()
+				return
+			}
+		}
+	}
+
+	// Fallback: Check today's entries for any running task (legacy support)
 	entries, _ := d.storage.LoadEntries(time.Now())
 	for _, e := range entries {
 		if e.EndTime.IsZero() {
 			d.activeID = e.ID
-			d.activeStart = e.StartTime
+			d.activeOriginalStart = e.StartTime
+			d.activeLastStart = e.StartTime // Assume started just now if legacy? Or original start.
+			d.accumulated = 0
+			d.activeState = models.TaskStateRunning
 
-			btn.SetText("Stop")
-			btn.SetIcon(theme.MediaStopIcon())
+			// Save migrated state
+			d.saveState()
+			d.updateButtons()
+			return
+		}
+	}
+
+	d.activeState = models.TaskStateStopped
+	d.updateButtons()
+}
+
+func (d *Dashboard) saveState() {
+	d.storage.SaveAppState(store.AppState{
+		ActiveTaskID:   d.activeID,
+		ActiveTaskDate: d.activeOriginalStart,
+		LastStartTime:  d.activeLastStart,
+	})
+}
+
+func (d *Dashboard) updateActiveEntry() {
+	// Helper to update the persistent entry with current in-memory values (accumulated, state)
+	entries, err := d.storage.LoadEntries(d.activeOriginalStart)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.ID == d.activeID {
+			e.State = d.activeState
+			e.Accumulated = d.accumulated
+			// StartTime remains original
+			d.storage.SaveEntry(e)
 			return
 		}
 	}
 }
 
-func (d *Dashboard) startTask(desc string) {
-	// Stop existing
-	d.storage.StopActiveTask(time.Now())
+func (d *Dashboard) StartTask(desc string) {
+	// If another task is running, stop it
+	if d.activeID != "" {
+		d.StopTask()
+	}
 
+	now := time.Now()
 	entry := models.TimeEntry{
 		ID:          uuid.New().String(),
 		Description: desc,
-		StartTime:   time.Now(),
+		StartTime:   now,
+		State:       models.TaskStateRunning,
+		Accumulated: 0,
 	}
 	d.storage.SaveEntry(entry)
+
 	d.activeID = entry.ID
-	d.activeStart = entry.StartTime
+	d.activeOriginalStart = now
+	d.activeLastStart = now
+	d.accumulated = 0
+	d.activeState = models.TaskStateRunning
+
+	d.saveState()
+	d.updateButtons()
+}
+
+func (d *Dashboard) PauseTask() {
+	if d.activeState != models.TaskStateRunning {
+		return
+	}
+	now := time.Now()
+	d.accumulated += int64(now.Sub(d.activeLastStart).Seconds())
+	d.activeState = models.TaskStatePaused
+
+	d.updateActiveEntry()
+	d.saveState()
+	d.updateButtons()
+}
+
+func (d *Dashboard) ResumeTask() {
+	if d.activeState != models.TaskStatePaused {
+		return
+	}
+	d.activeLastStart = time.Now()
+	d.activeState = models.TaskStateRunning
+
+	d.updateActiveEntry()
+	d.saveState()
+	d.updateButtons()
+}
+
+func (d *Dashboard) TogglePause() {
+	if d.activeState == models.TaskStateRunning {
+		d.PauseTask()
+	} else if d.activeState == models.TaskStatePaused {
+		d.ResumeTask()
+	}
+	d.refreshList()
 }
 
 func (d *Dashboard) StopTask() {
-	d.storage.StopActiveTask(time.Now())
-	d.activeID = ""
-	d.activeStart = time.Time{}
-	d.timerData.Set("00:00:00")
-	if d.startBtn != nil {
-		d.startBtn.SetText("Start")
-		d.startBtn.SetIcon(theme.MediaPlayIcon())
+	if d.activeID == "" {
+		return
 	}
+
+	now := time.Now()
+
+	// Load entry to finalize
+	entries, err := d.storage.LoadEntries(d.activeOriginalStart)
+	if err == nil {
+		for _, e := range entries {
+			if e.ID == d.activeID {
+				// Calculate final duration
+				finalDuration := d.accumulated
+				if d.activeState == models.TaskStateRunning {
+					finalDuration += int64(now.Sub(d.activeLastStart).Seconds())
+				}
+
+				e.EndTime = now
+				e.Duration = finalDuration
+				e.State = models.TaskStateStopped
+				e.Accumulated = d.accumulated // Optional: keep this for record
+
+				d.storage.SaveEntry(e)
+				break
+			}
+		}
+	}
+
+	// Clear state
+	d.storage.ClearAppState()
+	d.activeID = ""
+	d.activeState = models.TaskStateStopped
+	d.accumulated = 0
+	d.timerData.Set("00:00:00")
+
+	d.updateButtons()
+	d.refreshList()
 }
 
 func (d *Dashboard) showEditDialog(entry models.TimeEntry) {
@@ -234,12 +451,10 @@ func (d *Dashboard) showEditDialog(entry models.TimeEntry) {
 		if endEntry.Text != "" {
 			entry.EndTime = newEnd
 			entry.Duration = int64(newEnd.Sub(newStart).Seconds())
+			entry.State = models.TaskStateStopped
 		}
 
 		// If start date changed, we need to delete old and save new
-		// Simple check: if filename differs
-		// But we don't have access to filename helper here easily.
-		// Just compare YYYY-MM-DD
 		if oldEntry.StartTime.Format("2006-01-02") != entry.StartTime.Format("2006-01-02") {
 			d.storage.DeleteEntry(oldEntry)
 		}

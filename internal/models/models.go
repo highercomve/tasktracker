@@ -1,6 +1,15 @@
 package models
 
-import "time"
+import (
+	"time"
+)
+
+const (
+	TaskStateNone = iota
+	TaskStateRunning
+	TaskStatePaused
+	TaskStateStopped
+)
 
 // TimeEntry represents a single unit of work.
 type TimeEntry struct {
@@ -11,6 +20,8 @@ type TimeEntry struct {
 	EndTime     time.Time `json:"end_time"`     // Zero if running
 	Duration    int64     `json:"duration_sec"` // Calculated on stop
 	Tags        []string  `json:"tags"`
+	State       int       `json:"state"`       // running, paused, stopped
+	Accumulated int64     `json:"accumulated"` // accumulated seconds before current run session
 }
 
 // Project represents a client or category.

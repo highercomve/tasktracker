@@ -95,11 +95,26 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 		saveConfig()
 	})
 
+	eraseBtn := widget.NewButtonWithIcon("Erase All History", theme.DeleteIcon(), func() {
+		dialog.ShowConfirm("Erase All History", "Are you sure you want to delete ALL task history? This action cannot be undone.", func(confirmed bool) {
+			if confirmed {
+				if err := c.storage.DeleteAllEntries(); err != nil {
+					dialog.ShowError(err, c.window)
+				} else {
+					dialog.ShowInformation("Success", "All history has been erased.", c.window)
+				}
+			}
+		}, c.window)
+	})
+	eraseBtn.Importance = widget.DangerImportance
+
 	return container.NewVBox(
 		widget.NewLabel("Configuration"),
 		widget.NewForm(
 			widget.NewFormItem("Data Folder", folderContainer),
 		),
 		saveBtn,
+		widget.NewSeparator(),
+		eraseBtn,
 	)
 }

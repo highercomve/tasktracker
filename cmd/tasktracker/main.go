@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed" // Required for go:embed
 
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 )
 
@@ -25,7 +27,7 @@ var embeddedIconBytes []byte
 
 var userConfigFilePath string
 
-func setupViper() {
+func setupViper() error {
 	viper.SetConfigName("tasktracker") // name of config file (without extension)
 	viper.SetConfigType("yaml")        // or viper.SetConfigType("YAML")
 
@@ -34,7 +36,7 @@ func setupViper() {
 	if configHome == "" {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			log.Fatalf("Error getting user home directory: %v", err)
+			return fmt.Errorf("error getting user home directory: %w", err)
 		}
 		if runtime.GOOS == "windows" {
 			configHome = filepath.Join(homeDir, "AppData", "Roaming")
@@ -50,7 +52,7 @@ func setupViper() {
 	// Ensure the config directory exists
 	err := os.MkdirAll(filepath.Dir(userConfigFilePath), 0755)
 	if err != nil {
-		log.Fatalf("Error creating config directory: %v", err)
+		return fmt.Errorf("error creating config directory: %w", err)
 	}
 
 	viper.SetDefault("data_folder", "./data")
@@ -59,16 +61,16 @@ func setupViper() {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok || os.IsNotExist(err) {
 			log.Println("Config file not found; creating one with default values")
 			if err := viper.WriteConfigAs(userConfigFilePath); err != nil {
-				log.Fatalf("Error creating config file: %v", err)
+				return fmt.Errorf("error creating config file: %w", err)
 			}
 		} else {
-			log.Fatalf("Error reading config file: %v", err)
+			return fmt.Errorf("error reading config file: %w", err)
 		}
 	}
+	return nil
 }
 
 func main() {
-	setupViper()
 	os.Setenv("FYNE_SCALE", "auto")
 
 	go func() {
@@ -88,6 +90,12 @@ func main() {
 
 	w := a.NewWindow("Task Tracker")
 	w.Resize(fyne.NewSize(400, 600))
+
+	if err := setupViper(); err != nil {
+		dialog.ShowError(err, w)
+		w.ShowAndRun()
+		return
+	}
 
 	storage := store.NewStorage(viper.GetString("data_folder"))
 	dashboard := ui.NewDashboard(storage)

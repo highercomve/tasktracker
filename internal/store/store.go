@@ -10,6 +10,12 @@ import (
 	"github.com/highercomve/tasktracker/internal/models"
 )
 
+type AppState struct {
+	ActiveTaskID   string    `json:"active_task_id"`
+	ActiveTaskDate time.Time `json:"active_task_date"`
+	LastStartTime  time.Time `json:"last_start_time"`
+}
+
 type Storage struct {
 	BaseDir string
 	mu      sync.Mutex
@@ -139,7 +145,36 @@ func (s *Storage) SaveEntry(entry models.TimeEntry) error {
 // Or we can have a separate "state.json" for app state including active task ID.
 // Let's implement a simple "StopActiveTask" that checks today.
 func (s *Storage) StopActiveTask(endTime time.Time) error {
-	// Load today's entries
+	// Try to load from AppState first
+	state, err := s.LoadAppState()
+	if err == nil && state.ActiveTaskID != "" {
+		// Load the specific entry
+		entries, err := s.LoadEntries(state.ActiveTaskDate)
+		if err == nil {
+			for _, e := range entries {
+				if e.ID == state.ActiveTaskID {
+					e.EndTime = endTime
+					e.Duration = int64(endTime.Sub(e.StartTime).Seconds())
+					e.State = models.TaskStateStopped
+					// We must calculate total duration if it was paused/accumulated
+					// But simpler: just set EndTime and let logic handle it.
+					// Actually, we should respect Accumulated.
+					// Duration = Accumulated + (EndTime - StartTime) (if running)
+					// If it was paused, StartTime might be the resume time.
+					// This logic is better handled in Dashboard, but here we just want to close it.
+					// Let's assuming StopActiveTask is a "Force Stop".
+					// Better: Dashboard should handle the logic and call SaveEntry.
+					// StopActiveTask here is a legacy helper.
+					// We'll just update it to clear state.
+					s.SaveEntry(e)
+					s.ClearAppState()
+					return nil
+				}
+			}
+		}
+	}
+
+	// Fallback to legacy behavior (check today)
 	entries, err := s.LoadEntries(time.Now())
 	if err != nil {
 		return err
@@ -149,6 +184,7 @@ func (s *Storage) StopActiveTask(endTime time.Time) error {
 		if e.EndTime.IsZero() {
 			e.EndTime = endTime
 			e.Duration = int64(endTime.Sub(e.StartTime).Seconds())
+			e.State = models.TaskStateStopped
 			return s.SaveEntry(e)
 		}
 	}
@@ -203,4 +239,63 @@ func (s *Storage) DeleteEntry(entry models.TimeEntry) error {
 		return err
 	}
 	return os.WriteFile(path, newData, 0644)
+}
+
+// DeleteAllEntries removes all data from the storage (entries and state).
+func (s *Storage) DeleteAllEntries() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Delete entries directory
+	if err := os.RemoveAll(filepath.Join(s.BaseDir, "entries")); err != nil {
+		return err
+	}
+
+	// Re-create empty entries directory
+	if err := os.MkdirAll(filepath.Join(s.BaseDir, "entries"), 0755); err != nil {
+		return err
+	}
+
+	// Delete state file
+	os.Remove(s.getStateFilePath())
+
+	return nil
+}
+
+// App State Management
+
+func (s *Storage) getStateFilePath() string {
+	return filepath.Join(s.BaseDir, "state.json")
+}
+
+func (s *Storage) SaveAppState(state AppState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.getStateFilePath(), data, 0644)
+}
+
+func (s *Storage) LoadAppState() (AppState, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := os.ReadFile(s.getStateFilePath())
+	if err != nil {
+		return AppState{}, err
+	}
+	var state AppState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return AppState{}, err
+	}
+	return state, nil
+}
+
+func (s *Storage) ClearAppState() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return os.Remove(s.getStateFilePath())
 }

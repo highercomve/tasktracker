@@ -11,6 +11,8 @@ LINUX_ARM_LDFLAGS = $(foreach dir,$(wildcard $(LINUX_ARM_LIBS)),-L$(dir))
 EXE_EXT_windows = .exe
 EXE_EXT_linux =
 
+LDFLAGS_windows = -H=windowsgui
+
 ZIG_CC_FLAGS_windows = -Wdeprecated-non-prototype -Wl,--subsystem,windows
 ZIG_CC_FLAGS_linux-amd64 = -isystem /usr/include $(LINUX_AMD64_LDFLAGS) # Native build
 ZIG_CC_FLAGS_linux-arm64 = -isystem /usr/include $(LINUX_ARM64_LDFLAGS)
@@ -52,7 +54,7 @@ build-%: deps
 	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 \
 	CC="zig cc -target $(ZIG_TARGET_$*) $(ZIG_CC_FLAGS_$*)" \
 	CXX="zig c++ -target $(ZIG_TARGET_$*) $(ZIG_CC_FLAGS_$*)" \
-	go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" -o dist/$*/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) $(ENTRY_POINT)
+	go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)' $(LDFLAGS_$(GOOS))" -o dist/$*/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) $(ENTRY_POINT)
 
 # Alias for backward compatibility
 build-linux: build-linux-amd64
@@ -91,4 +93,4 @@ package-%: go.mod $(wildcard cmd/*.go)
 		-ldflags="github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)" \
 		$(ENTRY_POINT)
 	@mkdir -p dist/$(GOOS)-$(GOARCH)
-	cp fyne-cross/bin/$(GOOS)-$(GOARCH)/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) dist/$(GOOS)-$(GOARCH)/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) 
+	cp fyne-cross/bin/$(GOOS)-$(GOARCH)/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) dist/$(GOOS)-$(GOARCH)/$(BINARY_NAME)$(EXE_EXT_$(GOOS))
