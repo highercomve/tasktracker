@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/spf13/viper"
@@ -43,7 +44,7 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 
 	folderContainer := container.NewBorder(nil, nil, nil, browseBtn, entry)
 
-	saveBtn := widget.NewButton("Save Configuration", func() {
+	saveBtn := widget.NewButton(lang.L("save_configuration"), func() {
 		newDataFolder := entry.Text
 		if newDataFolder == "" {
 			dialog.ShowError(filepath.ErrBadPattern, c.window)
@@ -59,14 +60,14 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 				dialog.ShowError(err, c.window)
 				return
 			}
-			dialog.ShowInformation("Success", "Configuration saved successfully.\nData folder updated.", c.window)
+			dialog.ShowInformation(lang.L("success"), lang.L("config_saved"), c.window)
 		}
 
 		if newDataFolder != oldDataFolder {
 			// Ask user
 			var d dialog.Dialog
 			
-			moveBtn := widget.NewButton("Move Existing Data", func() {
+			moveBtn := widget.NewButton(lang.L("move_existing_data"), func() {
 				d.Hide()
 				if err := c.storage.MoveData(newDataFolder); err != nil {
 					dialog.ShowError(err, c.window)
@@ -75,18 +76,18 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 				saveConfig()
 			})
 			
-			freshBtn := widget.NewButton("Start Fresh", func() {
+			freshBtn := widget.NewButton(lang.L("start_fresh"), func() {
 				d.Hide()
 				c.storage.UpdateBaseDir(newDataFolder)
 				saveConfig()
 			})
 
 			content := container.NewVBox(
-				widget.NewLabel("You have changed the data folder.\nDo you want to move existing data to the new location?"),
+				widget.NewLabel(lang.L("data_folder_changed_msg")),
 				container.NewHBox(moveBtn, freshBtn),
 			)
 
-			d = dialog.NewCustom("Data Folder Changed", "Cancel", content, c.window)
+			d = dialog.NewCustom(lang.L("data_folder_changed_title"), lang.L("cancel"), content, c.window)
 			d.Show()
 			return
 		}
@@ -95,26 +96,32 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 		saveConfig()
 	})
 
-	eraseBtn := widget.NewButtonWithIcon("Erase All History", theme.DeleteIcon(), func() {
-		dialog.ShowConfirm("Erase All History", "Are you sure you want to delete ALL task history? This action cannot be undone.", func(confirmed bool) {
+	eraseBtn := widget.NewButtonWithIcon(lang.L("erase_all_history"), theme.DeleteIcon(), func() {
+		dialog.ShowConfirm(lang.L("erase_all_history"), lang.L("erase_history_confirm"), func(confirmed bool) {
 			if confirmed {
 				if err := c.storage.DeleteAllEntries(); err != nil {
 					dialog.ShowError(err, c.window)
 				} else {
-					dialog.ShowInformation("Success", "All history has been erased.", c.window)
+					dialog.ShowInformation(lang.L("success"), lang.L("history_erased"), c.window)
 				}
 			}
 		}, c.window)
 	})
 	eraseBtn.Importance = widget.DangerImportance
 
+	quitBtn := widget.NewButtonWithIcon(lang.L("quit_application"), theme.LogoutIcon(), func() {
+		fyne.CurrentApp().Quit()
+	})
+
 	return container.NewVBox(
-		widget.NewLabel("Configuration"),
+		widget.NewLabel(lang.L("config_tab")),
 		widget.NewForm(
-			widget.NewFormItem("Data Folder", folderContainer),
+			widget.NewFormItem(lang.L("data_folder"), folderContainer),
 		),
 		saveBtn,
 		widget.NewSeparator(),
 		eraseBtn,
+		widget.NewSeparator(),
+		quitBtn,
 	)
 }

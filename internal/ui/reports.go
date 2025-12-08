@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
@@ -48,7 +49,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	
 	var updateDaily func()
 	updateDaily = func() {
-		dailyLabel.SetText("Report for " + selectedDay.Format("Mon, 02 Jan 2006"))
+		dailyLabel.SetText(lang.L("report_for") + selectedDay.Format("Mon, 02 Jan 2006"))
 		refreshReport(dailyContent, selectedDay, selectedDay, updateDaily)
 	}
 	// updateDaily() // Initial moved to OnSelected
@@ -59,7 +60,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 				selectedDay = selectedDay.AddDate(0, 0, -1)
 				updateDaily()
 			}),
-			widget.NewButton("Today", func() {
+			widget.NewButton(lang.L("today"), func() {
 				selectedDay = time.Now()
 				updateDaily()
 			}),
@@ -88,7 +89,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	var updateWeekly func()
 	updateWeekly = func() {
 		end := selectedWeekStart.AddDate(0, 0, 6)
-		weeklyLabel.SetText(fmt.Sprintf("Week %s - %s", selectedWeekStart.Format("Jan 02"), end.Format("Jan 02")))
+		weeklyLabel.SetText(fmt.Sprintf("%s %s - %s", lang.L("week"), selectedWeekStart.Format("Jan 02"), end.Format("Jan 02")))
 		refreshReport(weeklyContent, selectedWeekStart, end, updateWeekly)
 	}
 	// updateWeekly() // Initial moved to OnSelected
@@ -99,7 +100,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 				selectedWeekStart = selectedWeekStart.AddDate(0, 0, -7)
 				updateWeekly()
 			}),
-			widget.NewButton("This Week", func() {
+			widget.NewButton(lang.L("this_week"), func() {
 				selectedWeekStart = getWeekStart(time.Now())
 				updateWeekly()
 			}),
@@ -124,7 +125,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	var updateMonthly func()
 	updateMonthly = func() {
 		end := selectedMonth.AddDate(0, 1, -1)
-		monthlyLabel.SetText("Report for " + selectedMonth.Format("January 2006"))
+		monthlyLabel.SetText(lang.L("report_for") + selectedMonth.Format("January 2006"))
 		refreshReport(monthlyContent, selectedMonth, end, updateMonthly)
 	}
 	// updateMonthly() // Initial moved to OnSelected
@@ -135,7 +136,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 				selectedMonth = selectedMonth.AddDate(0, -1, 0)
 				updateMonthly()
 			}),
-			widget.NewButton("This Month", func() {
+			widget.NewButton(lang.L("this_month"), func() {
 				selectedMonth = getMonthStart(time.Now())
 				updateMonthly()
 			}),
@@ -175,7 +176,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		// We need to find the parent window
 		wins := fyne.CurrentApp().Driver().AllWindows()
 		if len(wins) > 0 {
-			d = dialog.NewCustom("Select Date", "Cancel", container.NewPadded(cal), wins[0])
+			d = dialog.NewCustom(lang.L("select_date"), lang.L("cancel"), container.NewPadded(cal), wins[0])
 			d.Resize(fyne.NewSize(300, 300))
 			d.Show()
 		}
@@ -199,10 +200,10 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 
 	customTab := container.NewBorder(
 		container.NewHBox(
-			widget.NewLabel("From:"), startBtn,
-			widget.NewLabel("To:"), endBtn,
+			widget.NewLabel(lang.L("from")), startBtn,
+			widget.NewLabel(lang.L("to")), endBtn,
 			layout.NewSpacer(),
-			widget.NewButtonWithIcon("Refresh", theme.ViewRefreshIcon(), func() {
+			widget.NewButtonWithIcon(lang.L("refresh"), theme.ViewRefreshIcon(), func() {
 				updateCustom()
 			}),
 		),
@@ -211,21 +212,21 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	)
 
 	tabs := container.NewAppTabs(
-		container.NewTabItem("Daily", dailyTab),
-		container.NewTabItem("Weekly", weeklyTab),
-		container.NewTabItem("Monthly", monthlyTab),
-		container.NewTabItem("Custom Range", customTab),
+		container.NewTabItem(lang.L("daily"), dailyTab),
+		container.NewTabItem(lang.L("weekly"), weeklyTab),
+		container.NewTabItem(lang.L("monthly"), monthlyTab),
+		container.NewTabItem(lang.L("custom_range"), customTab),
 	)
 
 	tabs.OnSelected = func(item *container.TabItem) {
 		switch item.Text {
-		case "Daily":
+		case lang.L("daily"):
 			updateDaily()
-		case "Weekly":
+		case lang.L("weekly"):
 			updateWeekly()
-		case "Monthly":
+		case lang.L("monthly"):
 			updateMonthly()
-		case "Custom Range":
+		case lang.L("custom_range"):
 			updateCustom()
 		}
 	}
@@ -237,7 +238,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 
 func (r *Reports) renderHistory(entries []models.TimeEntry, onRefresh func()) fyne.CanvasObject {
 	if len(entries) == 0 {
-		return widget.NewLabel("No entries found for this period.")
+		return widget.NewLabel(lang.L("no_entries"))
 	}
 
 	// Summary
@@ -252,7 +253,7 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, onRefresh func()) fy
 		total += dur
 	}
 
-	summaryText := fmt.Sprintf("Total Time: %s\n", formatDuration(total))
+	summaryText := fmt.Sprintf(lang.L("total_time") + "%s\n", formatDuration(total))
 	for desc, dur := range sums {
 		summaryText += fmt.Sprintf("- %s: %s\n", desc, formatDuration(dur))
 	}
@@ -268,8 +269,8 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, onRefresh func()) fy
 			return container.NewBorder(nil, nil, nil,
 				container.NewHBox(widget.NewLabel("00:00:00"), widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), nil), widget.NewButtonWithIcon("", theme.DeleteIcon(), nil)),
 				container.NewVBox(
-					widget.NewLabelWithStyle("Title", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-					widget.NewLabelWithStyle("Date", fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
+					widget.NewLabelWithStyle(lang.L("title"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+					widget.NewLabelWithStyle(lang.L("date"), fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
 				))
 		},
 		func(i int, o fyne.CanvasObject) {
@@ -306,7 +307,7 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, onRefresh func()) fy
 			}
 			delBtn.OnTapped = func() {
 				parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
-				dialog.ShowConfirm("Confirm Deletion", "Are you sure you want to delete this task?", func(confirmed bool) {
+				dialog.ShowConfirm(lang.L("confirm_deletion"), lang.L("confirm_delete_task"), func(confirmed bool) {
 					if !confirmed {
 						return
 					}
@@ -337,13 +338,13 @@ func (r *Reports) showEditDialog(entry models.TimeEntry, onSuccess func()) {
 	}
 
 	items := []*widget.FormItem{
-		widget.NewFormItem("Description", descEntry),
-		widget.NewFormItem("Start Time", startEntry),
-		widget.NewFormItem("End Time", endEntry),
+		widget.NewFormItem(lang.L("task_description"), descEntry),
+		widget.NewFormItem(lang.L("start_time"), startEntry),
+		widget.NewFormItem(lang.L("end_time"), endEntry),
 	}
 
 	parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
-	dlg := dialog.NewForm("Edit Task", "Save", "Cancel", items, func(b bool) {
+	dlg := dialog.NewForm(lang.L("edit_task"), lang.L("save"), lang.L("cancel"), items, func(b bool) {
 		if !b {
 			return
 		}
@@ -354,7 +355,7 @@ func (r *Reports) showEditDialog(entry models.TimeEntry, onSuccess func()) {
 
 		if err1 != nil || (endEntry.Text != "" && err2 != nil) {
 			// Show error? For now just return
-			fmt.Println("Error parsing time")
+			fmt.Println(lang.L("error_parsing_time"))
 			return
 		}
 

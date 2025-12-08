@@ -11,6 +11,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/google/uuid"
@@ -51,11 +52,11 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 
 	// Input
 	entry := widget.NewEntry()
-	entry.PlaceHolder = "What are you working on?"
+	entry.PlaceHolder = lang.L("what_working_on")
 
 	// Buttons
-	d.startBtn = widget.NewButtonWithIcon("Start", theme.MediaPlayIcon(), nil)
-	d.pauseBtn = widget.NewButtonWithIcon("Pause", theme.MediaPauseIcon(), nil)
+	d.startBtn = widget.NewButtonWithIcon(lang.L("start"), theme.MediaPlayIcon(), nil)
+	d.pauseBtn = widget.NewButtonWithIcon(lang.L("pause"), theme.MediaPauseIcon(), nil)
 	d.pauseBtn.Disable() // Initially disabled
 
 	d.startBtn.OnTapped = func() {
@@ -98,7 +99,7 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 		func() fyne.CanvasObject {
 			return container.NewBorder(nil, nil, nil,
 				container.NewHBox(widget.NewLabel("00:00"), widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), nil), widget.NewButtonWithIcon("", theme.DeleteIcon(), nil)),
-				widget.NewLabel("Title"))
+				widget.NewLabel(lang.L("title")))
 		},
 		func(i int, o fyne.CanvasObject) {
 			// Safety check
@@ -134,7 +135,7 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 				} else if entry.State == models.TaskStateRunning {
 					// Should technically not happen for non-active tasks unless multiple running (bug)
 					// or if activeID mismatch.
-					dur.SetText("Running...")
+					dur.SetText(lang.L("running"))
 					dur.TextStyle = fyne.TextStyle{Italic: true}
 					editBtn.Disable()
 				} else {
@@ -149,7 +150,7 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 			}
 			delBtn.OnTapped = func() {
 				parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
-				dialog.ShowConfirm("Confirm Deletion", "Are you sure you want to delete this task?", func(confirmed bool) {
+				dialog.ShowConfirm(lang.L("confirm_deletion"), lang.L("confirm_delete_task"), func(confirmed bool) {
 					if !confirmed {
 						return
 					}
@@ -214,27 +215,27 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 
 func (d *Dashboard) updateButtons() {
 	if d.activeState == models.TaskStateRunning {
-		d.startBtn.SetText("Stop")
+		d.startBtn.SetText(lang.L("stop"))
 		d.startBtn.SetIcon(theme.MediaStopIcon())
 		d.startBtn.Enable()
 
-		d.pauseBtn.SetText("Pause")
+		d.pauseBtn.SetText(lang.L("pause"))
 		d.pauseBtn.SetIcon(theme.MediaPauseIcon())
 		d.pauseBtn.Enable()
 	} else if d.activeState == models.TaskStatePaused {
-		d.startBtn.SetText("Stop")
+		d.startBtn.SetText(lang.L("stop"))
 		d.startBtn.SetIcon(theme.MediaStopIcon())
 		d.startBtn.Enable()
 
-		d.pauseBtn.SetText("Resume")
+		d.pauseBtn.SetText(lang.L("resume"))
 		d.pauseBtn.SetIcon(theme.MediaPlayIcon())
 		d.pauseBtn.Enable()
 	} else {
-		d.startBtn.SetText("Start")
+		d.startBtn.SetText(lang.L("start"))
 		d.startBtn.SetIcon(theme.MediaPlayIcon())
 		d.startBtn.Enable()
 
-		d.pauseBtn.SetText("Pause")
+		d.pauseBtn.SetText(lang.L("pause"))
 		d.pauseBtn.SetIcon(theme.MediaPauseIcon())
 		d.pauseBtn.Disable()
 	}
@@ -423,13 +424,13 @@ func (d *Dashboard) showEditDialog(entry models.TimeEntry) {
 	}
 
 	items := []*widget.FormItem{
-		widget.NewFormItem("Description", descEntry),
-		widget.NewFormItem("Start Time", startEntry),
-		widget.NewFormItem("End Time", endEntry),
+		widget.NewFormItem(lang.L("task_description"), descEntry),
+		widget.NewFormItem(lang.L("start_time"), startEntry),
+		widget.NewFormItem(lang.L("end_time"), endEntry),
 	}
 
 	parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
-	dlg := dialog.NewForm("Edit Task", "Save", "Cancel", items, func(b bool) {
+	dlg := dialog.NewForm(lang.L("edit_task"), lang.L("save"), lang.L("cancel"), items, func(b bool) {
 		if !b {
 			return
 		}
@@ -440,7 +441,7 @@ func (d *Dashboard) showEditDialog(entry models.TimeEntry) {
 
 		if err1 != nil || (endEntry.Text != "" && err2 != nil) {
 			// Show error? For now just return
-			fmt.Println("Error parsing time")
+			fmt.Println(lang.L("error_parsing_time"))
 			return
 		}
 
