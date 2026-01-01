@@ -1,4 +1,11 @@
 
+<a name="v0.1.1"></a>
+## [v0.1.1](https://github.com/highercomve/tasktracker/compare/v0.1.0...v0.1.1) - 2026-01-01
+
+### Feature
+- add changelog welcome message
+
+
 <a name="v0.1.0"></a>
 ## [v0.1.0](https://github.com/highercomve/tasktracker/compare/v0.0.11...v0.1.0) - 2026-01-01
 
@@ -54,4 +61,3 @@
 
 ### Feature
 - add delete dialog
-
