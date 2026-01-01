@@ -99,7 +99,7 @@ func main() {
 	// Fyne handles en-US -> en fallback automatically if 'en' is registered.
 	// But if system is 'fr-FR' and we only have 'en', Fyne shows keys.
 	// So we force EN if the system lang isn't supported.
-	
+
 	// Simple check: is the full locale or the base language supported?
 	baseLang := strings.Split(sysLang, "-")[0]
 	baseLang = strings.Split(baseLang, "_")[0] // Handle en_US
@@ -152,6 +152,8 @@ func main() {
 	w.SetContent(tabs)
 
 	ui.SetupTray(a, w, iconResource, dashboard)
+
+	ui.CheckVersion(w, storage)
 
 	w.ShowAndRun()
 }

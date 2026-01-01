@@ -14,6 +14,7 @@ type AppState struct {
 	ActiveTaskID   string    `json:"active_task_id"`
 	ActiveTaskDate time.Time `json:"active_task_date"`
 	LastStartTime  time.Time `json:"last_start_time"`
+	LastRunVersion string    `json:"last_run_version"`
 }
 
 type Storage struct {
@@ -271,7 +272,7 @@ func (s *Storage) getStateFilePath() string {
 func (s *Storage) SaveAppState(state AppState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	data, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
