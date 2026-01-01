@@ -49,5 +49,14 @@
     "quit_application": "Quit Application",
     "data_folder": "Data Folder",
     "today": "Today",
-    "week": "Week"
+    "year": "Year",
+    "week": "Week",
+    "report_title": "Task Tracker Report",
+    "task_history": "Task History",
+    "duration": "Duration",
+    "export_pdf": "Export PDF",
+    "pdf_saved": "PDF Report saved successfully.",
+    "group_by": "Group By",
+    "none": "None",
+    "subtotal": "Subtotal"
 }

@@ -49,5 +49,14 @@
     "quit_application": "Salir de la Aplicación",
     "data_folder": "Carpeta de Datos",
     "today": "Hoy",
-    "week": "Semana"
+    "year": "Año",
+    "week": "Semana",
+    "report_title": "Reporte de Rastreador de Tareas",
+    "task_history": "Historial de Tareas",
+    "duration": "Duración",
+    "export_pdf": "Exportar PDF",
+    "pdf_saved": "Reporte PDF guardado exitosamente.",
+    "group_by": "Agrupar Por",
+    "none": "Ninguno",
+    "subtotal": "Subtotal"
 }
