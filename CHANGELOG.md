@@ -1,18 +1,38 @@
 
+<a name="0.1.2"></a>
+## [0.1.2](https://github.com/highercomve/tasktracker/compare/v0.1.1...0.1.2) - 2026-01-19
+
+### Feature
+- add project and labels to task
+
+
+<a name="v0.1.1"></a>
+## [v0.1.1](https://github.com/highercomve/tasktracker/compare/v0.1.0...v0.1.1) - 2026-01-01
+
+### Feature
+- add changelog welcome message
+
+
 <a name="v0.1.0"></a>
 ## [v0.1.0](https://github.com/highercomve/tasktracker/compare/v0.0.11...v0.1.0) - 2026-01-01
 
-
-<a name="v0.0.11"></a>
-## [v0.0.11](https://github.com/highercomve/tasktracker/compare/v0.0.10...v0.0.11) - 2026-01-01
-
 ### Feature
 - add pdf export to the reports
+
+
+<a name="v0.0.11"></a>
+## [v0.0.11](https://github.com/highercomve/tasktracker/compare/v0.0.10...v0.0.11) - 2025-12-08
+
+### Feature
 - add translation
 
 
 <a name="v0.0.10"></a>
-## [v0.0.10](https://github.com/highercomve/tasktracker/compare/v0.0.8...v0.0.10) - 2025-12-05
+## [v0.0.10](https://github.com/highercomve/tasktracker/compare/v0.0.9...v0.0.10) - 2025-12-05
+
+
+<a name="v0.0.9"></a>
+## [v0.0.9](https://github.com/highercomve/tasktracker/compare/v0.0.8...v0.0.9) - 2025-12-05
 
 ### Feature
 - add configuration
