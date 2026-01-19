@@ -138,39 +138,28 @@ func (s *Storage) SaveEntry(entry models.TimeEntry) error {
 	return os.WriteFile(path, newData, 0644)
 }
 
-// StopActiveTask stops any active task across all known recent files?
-// Or just today? Usually today.
-// But if a task started yesterday and is still running?
-// We should probably track the "Active Task" separately or search for it.
-// For MVP, let's assume it's in today's file or we pass it explicitly.
-// Or we can have a separate "state.json" for app state including active task ID.
-// Let's implement a simple "StopActiveTask" that checks today.
+// StopActiveTask stops any active task. This is a legacy helper method.
+// Note: Dashboard.StopTask is the primary method used by the UI.
+// This method is kept for potential programmatic/CLI use.
 func (s *Storage) StopActiveTask(endTime time.Time) error {
 	// Try to load from AppState first
 	state, err := s.LoadAppState()
 	if err == nil && state.ActiveTaskID != "" {
 		// Load the specific entry
 		entries, err := s.LoadEntries(state.ActiveTaskDate)
-		if err == nil {
-			for _, e := range entries {
-				if e.ID == state.ActiveTaskID {
-					e.EndTime = endTime
-					e.Duration = int64(endTime.Sub(e.StartTime).Seconds())
-					e.State = models.TaskStateStopped
-					// We must calculate total duration if it was paused/accumulated
-					// But simpler: just set EndTime and let logic handle it.
-					// Actually, we should respect Accumulated.
-					// Duration = Accumulated + (EndTime - StartTime) (if running)
-					// If it was paused, StartTime might be the resume time.
-					// This logic is better handled in Dashboard, but here we just want to close it.
-					// Let's assuming StopActiveTask is a "Force Stop".
-					// Better: Dashboard should handle the logic and call SaveEntry.
-					// StopActiveTask here is a legacy helper.
-					// We'll just update it to clear state.
-					s.SaveEntry(e)
-					s.ClearAppState()
-					return nil
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if e.ID == state.ActiveTaskID {
+				e.EndTime = endTime
+				e.Duration = int64(endTime.Sub(e.StartTime).Seconds())
+				e.State = models.TaskStateStopped
+				if err := s.SaveEntry(e); err != nil {
+					return err
 				}
+				s.ClearAppState()
+				return nil
 			}
 		}
 	}
@@ -299,4 +288,45 @@ func (s *Storage) ClearAppState() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return os.Remove(s.getStateFilePath())
+}
+
+// Project Persistence
+
+func (s *Storage) getProjectsFilePath() string {
+	return filepath.Join(s.BaseDir, "projects.json")
+}
+
+// LoadProjects loads all projects from persistent storage.
+// Returns an empty slice if the projects file doesn't exist.
+func (s *Storage) LoadProjects() ([]models.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := s.getProjectsFilePath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []models.Project{}, nil
+		}
+		return nil, err
+	}
+
+	var projects []models.Project
+	if err := json.Unmarshal(data, &projects); err != nil {
+		return nil, err
+	}
+	return projects, nil
+}
+
+// SaveProjects saves all projects to persistent storage.
+// It completely overwrites the projects file with the provided slice.
+func (s *Storage) SaveProjects(projects []models.Project) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	data, err := json.MarshalIndent(projects, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.getProjectsFilePath(), data, 0644)
 }

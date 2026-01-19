@@ -8,6 +8,7 @@ import (
 	"fyne.io/fyne/v2/lang"
 	"github.com/highercomve/tasktracker/internal/models"
 	"github.com/highercomve/tasktracker/internal/service"
+	"github.com/highercomve/tasktracker/internal/utils"
 	"github.com/johnfercher/maroto/pkg/color"
 	"github.com/johnfercher/maroto/pkg/consts"
 	"github.com/johnfercher/maroto/pkg/pdf"
@@ -89,7 +90,7 @@ func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, 
 			rows = append(rows, []string{
 				e.StartTime.Format("2006-01-02"),
 				e.Description,
-				formatDuration(dur),
+				utils.FormatDuration(dur),
 			})
 		}
 
@@ -137,7 +138,7 @@ func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, 
 				rows = append(rows, []string{
 					e.StartTime.Format("2006-01-02"),
 					e.Description,
-					formatDuration(dur),
+					utils.FormatDuration(dur),
 				})
 			}
 
@@ -177,7 +178,7 @@ func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, 
 			// Subtotal Footer
 			m.Row(10, func() {
 				m.Col(12, func() {
-					m.Text(fmt.Sprintf("%s: %s", lang.L("subtotal"), formatDuration(groupTotal)), props.Text{
+					m.Text(fmt.Sprintf("%s: %s", lang.L("subtotal"), utils.FormatDuration(groupTotal)), props.Text{
 						Top:   0,
 						Style: consts.Bold,
 						Align: consts.Right,
@@ -194,7 +195,7 @@ func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, 
 	// Summary
 	m.Row(20, func() {
 		m.Col(12, func() {
-			m.Text(fmt.Sprintf("%s: %s", lang.L("total_time"), formatDuration(totalDuration)), props.Text{
+			m.Text(fmt.Sprintf("%s: %s", lang.L("total_time"), utils.FormatDuration(totalDuration)), props.Text{
 				Top:   10,
 				Style: consts.Bold,
 				Align: consts.Right,

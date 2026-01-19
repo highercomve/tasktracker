@@ -2,7 +2,10 @@ package service
 
 import (
 	"fmt"
+	"sort"
 	"time"
+
+	"github.com/highercomve/tasktracker/internal/models"
 )
 
 const (
@@ -10,6 +13,8 @@ const (
 	GroupByDay         = "Daily"
 	GroupByWeek        = "Weekly"
 	GroupByWeekOfMonth = "WeeklyOfMonth"
+	GroupByCategory    = "Category"
+	GroupByProject     = "Project"
 )
 
 // Shared helper functions for grouping
@@ -83,4 +88,132 @@ func GetGroupTitle(t time.Time, groupBy string) string {
 		return fmt.Sprintf("%s - %s", start.Format("Jan 02"), end.Format("Jan 02, 2006"))
 	}
 	return ""
+}
+
+// ExtractCategories returns unique primary categories (first tag) from entries
+func ExtractCategories(entries []models.TimeEntry) []string {
+	categoryMap := make(map[string]bool)
+	var categories []string
+
+	for _, e := range entries {
+		if len(e.Tags) > 0 && e.Tags[0] != "" {
+			if !categoryMap[e.Tags[0]] {
+				categoryMap[e.Tags[0]] = true
+				categories = append(categories, e.Tags[0])
+			}
+		}
+	}
+
+	// Sort for consistent ordering
+	sort.Strings(categories)
+	return categories
+}
+
+// FilterByCategory returns entries matching the specified category
+func FilterByCategory(entries []models.TimeEntry, category string) []models.TimeEntry {
+	if category == "" || category == "All" {
+		return entries
+	}
+
+	var filtered []models.TimeEntry
+	for _, e := range entries {
+		var entryCategory string
+		if len(e.Tags) > 0 && e.Tags[0] != "" {
+			entryCategory = e.Tags[0]
+		} else {
+			entryCategory = "Untagged"
+		}
+
+		if entryCategory == category {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered
+}
+
+// GetCategoryTotals returns time duration per category
+func GetCategoryTotals(entries []models.TimeEntry) map[string]time.Duration {
+	totals := make(map[string]time.Duration)
+
+	for _, e := range entries {
+		var category string
+		if len(e.Tags) > 0 && e.Tags[0] != "" {
+			category = e.Tags[0]
+		} else {
+			category = "Untagged"
+		}
+
+		var dur time.Duration
+		if e.EndTime.IsZero() {
+			dur = time.Since(e.StartTime)
+		} else {
+			dur = time.Duration(e.Duration) * time.Second
+		}
+
+		totals[category] += dur
+	}
+
+	return totals
+}
+
+// GroupByProjectID groups entries by their project ID
+// Returns a map where key is project ID and value is the list of entries
+func GroupByProjectID(entries []models.TimeEntry) map[string][]models.TimeEntry {
+	groups := make(map[string][]models.TimeEntry)
+
+	for _, e := range entries {
+		projectID := e.ProjectID
+		if projectID == "" {
+			projectID = "unassigned"
+		}
+		groups[projectID] = append(groups[projectID], e)
+	}
+
+	return groups
+}
+
+// GroupEntriesByProject groups entries by project ID with project details
+// Returns a slice of maps containing project information and their associated entries
+// Useful for displaying entries organized by project in the UI
+func GroupEntriesByProject(entries []models.TimeEntry, projects []models.Project) map[string]map[string]interface{} {
+	groups := make(map[string]map[string]interface{})
+	projectMap := make(map[string]models.Project)
+
+	// Build project lookup map for quick access
+	for _, p := range projects {
+		projectMap[p.ID] = p
+	}
+
+	// Group entries by project ID
+	for _, e := range entries {
+		projectID := e.ProjectID
+		if projectID == "" {
+			projectID = "unassigned"
+		}
+
+		if _, exists := groups[projectID]; !exists {
+			groups[projectID] = make(map[string]interface{})
+			// Add project details if it exists
+			if project, found := projectMap[projectID]; found {
+				groups[projectID]["name"] = project.Name
+				groups[projectID]["description"] = project.Description
+				groups[projectID]["color_hex"] = project.ColorHex
+				groups[projectID]["id"] = project.ID
+			} else if projectID == "unassigned" {
+				groups[projectID]["name"] = "Unassigned"
+				groups[projectID]["description"] = "Tasks without a project"
+				groups[projectID]["color_hex"] = ""
+				groups[projectID]["id"] = "unassigned"
+			}
+		}
+
+		// Append entry to the project's entries list
+		if entries, ok := groups[projectID]["entries"].([]models.TimeEntry); ok {
+			groups[projectID]["entries"] = append(entries, e)
+		} else {
+			groups[projectID]["entries"] = []models.TimeEntry{e}
+		}
+	}
+
+	return groups
 }

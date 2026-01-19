@@ -26,8 +26,11 @@ type TimeEntry struct {
 
 // Project represents a client or category.
 type Project struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Client   string `json:"client"`
-	ColorHex string `json:"color_hex"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Client      string    `json:"client"`
+	ColorHex    string    `json:"color_hex"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }

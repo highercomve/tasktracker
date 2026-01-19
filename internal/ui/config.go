@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"path/filepath"
 
 	"github.com/highercomve/tasktracker/internal/store"
@@ -15,8 +16,8 @@ import (
 )
 
 type Config struct {
-	window           fyne.Window
-	storage          *store.Storage
+	window             fyne.Window
+	storage            *store.Storage
 	userConfigFilePath string
 }
 
@@ -28,6 +29,17 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 	dataFolder := viper.GetString("data_folder")
 	entry := widget.NewEntry()
 	entry.SetText(dataFolder)
+
+	idleEnabled := viper.GetBool("idle_detection")
+	idleCheck := widget.NewCheck(lang.L("idle_detection"), nil)
+	idleCheck.SetChecked(idleEnabled)
+
+	idleThreshold := viper.GetInt("idle_threshold")
+	if idleThreshold <= 0 {
+		idleThreshold = 5
+	}
+	thresholdEntry := widget.NewEntry()
+	thresholdEntry.SetText(fmt.Sprintf("%d", idleThreshold))
 
 	browseBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
 		dialog.NewFolderOpen(func(uri fyne.ListableURI, err error) {
@@ -51,10 +63,16 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 			return
 		}
 
+		newIdleEnabled := idleCheck.Checked
+		newIdleThreshold := 5
+		fmt.Sscanf(thresholdEntry.Text, "%d", &newIdleThreshold)
+
 		oldDataFolder := c.storage.BaseDir
 
 		saveConfig := func() {
 			viper.Set("data_folder", newDataFolder)
+			viper.Set("idle_detection", newIdleEnabled)
+			viper.Set("idle_threshold", newIdleThreshold)
 			err := viper.WriteConfigAs(c.userConfigFilePath)
 			if err != nil {
 				dialog.ShowError(err, c.window)
@@ -66,7 +84,7 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 		if newDataFolder != oldDataFolder {
 			// Ask user
 			var d dialog.Dialog
-			
+
 			moveBtn := widget.NewButton(lang.L("move_existing_data"), func() {
 				d.Hide()
 				if err := c.storage.MoveData(newDataFolder); err != nil {
@@ -75,7 +93,7 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 				}
 				saveConfig()
 			})
-			
+
 			freshBtn := widget.NewButton(lang.L("start_fresh"), func() {
 				d.Hide()
 				c.storage.UpdateBaseDir(newDataFolder)
@@ -110,6 +128,7 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 	eraseBtn.Importance = widget.DangerImportance
 
 	quitBtn := widget.NewButtonWithIcon(lang.L("quit_application"), theme.LogoutIcon(), func() {
+		_ = viper.WriteConfigAs(c.userConfigFilePath)
 		fyne.CurrentApp().Quit()
 	})
 
@@ -117,6 +136,8 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 		widget.NewLabel(lang.L("config_tab")),
 		widget.NewForm(
 			widget.NewFormItem(lang.L("data_folder"), folderContainer),
+			widget.NewFormItem(lang.L("idle_detection"), idleCheck),
+			widget.NewFormItem(lang.L("idle_threshold"), thresholdEntry),
 		),
 		saveBtn,
 		widget.NewSeparator(),

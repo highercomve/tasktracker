@@ -78,6 +78,11 @@ func setupViper() error {
 func main() {
 	os.Setenv("FYNE_SCALE", "auto")
 
+	var viperErr error
+	if viperErr = setupViper(); viperErr != nil {
+		log.Printf("Warning: error setting up config: %v\n", viperErr)
+	}
+
 	// Pre-load translations to check for fallback needs
 	// We need to do this before app.New if we want to force FYNE_LANG
 	supportedLocales := make(map[string]bool)
@@ -132,8 +137,8 @@ func main() {
 	w := a.NewWindow(lang.L("app_title"))
 	w.Resize(fyne.NewSize(400, 600))
 
-	if err := setupViper(); err != nil {
-		dialog.ShowError(err, w)
+	if viperErr != nil {
+		dialog.ShowError(viperErr, w)
 		w.ShowAndRun()
 		return
 	}
@@ -141,15 +146,19 @@ func main() {
 	storage := store.NewStorage(viper.GetString("data_folder"))
 	dashboard := ui.NewDashboard(storage)
 	reports := ui.NewReports(storage)
+	projects := ui.NewProjects(storage)
 	configUI := ui.NewConfig(w, storage, userConfigFilePath)
 
 	tabs := container.NewAppTabs(
 		container.NewTabItem(lang.L("tracker_tab"), dashboard.MakeUI()),
 		container.NewTabItem(lang.L("reports_tab"), reports.MakeUI()),
+		container.NewTabItem(lang.L("projects_tab"), projects.MakeUI()),
 		container.NewTabItem(lang.L("config_tab"), configUI.MakeUI()),
 	)
 
 	w.SetContent(tabs)
+
+	dashboard.SetupShortcuts(w)
 
 	ui.SetupTray(a, w, iconResource, dashboard)
 

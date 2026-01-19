@@ -4,6 +4,7 @@ import (
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/lang"
+	"github.com/spf13/viper"
 )
 
 func SetupTray(a fyne.App, w fyne.Window, icon fyne.Resource, d *Dashboard) {
@@ -20,6 +21,7 @@ func SetupTray(a fyne.App, w fyne.Window, icon fyne.Resource, d *Dashboard) {
 			}),
 			fyne.NewMenuItemSeparator(),
 			fyne.NewMenuItem(lang.L("quit"), func() {
+				_ = viper.WriteConfigAs(viper.ConfigFileUsed())
 				a.Quit()
 			}),
 		)
@@ -28,6 +30,7 @@ func SetupTray(a fyne.App, w fyne.Window, icon fyne.Resource, d *Dashboard) {
 	}
 
 	w.SetCloseIntercept(func() {
+		_ = viper.WriteConfigAs(viper.ConfigFileUsed())
 		w.Hide()
 	})
 }

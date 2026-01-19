@@ -202,13 +202,14 @@ func extractTarXz(archivePath, destDir, executablePath string) (string, error) {
 		}
 
 		if header.Typeflag == tar.TypeReg {
-				// Expecting the executable to be named after the original executable
-				expectedExecutableName := filepath.Base(executablePath)
-				// On Linux, the executable name won't have .exe
-				if runtime.GOOS == "linux" && strings.HasSuffix(expectedExecutableName, ".exe") {
-					expectedExecutableName = strings.TrimSuffix(expectedExecutableName, ".exe")
-				}
-				if filepath.Base(header.Name) == expectedExecutableName {				newExecutablePath := filepath.Join(destDir, expectedExecutableName)
+			// Expecting the executable to be named after the original executable
+			expectedExecutableName := filepath.Base(executablePath)
+			// On Linux, the executable name won't have .exe
+			if runtime.GOOS == "linux" && strings.HasSuffix(expectedExecutableName, ".exe") {
+				expectedExecutableName = strings.TrimSuffix(expectedExecutableName, ".exe")
+			}
+			if filepath.Base(header.Name) == expectedExecutableName {
+				newExecutablePath := filepath.Join(destDir, expectedExecutableName)
 				newFile, err := os.OpenFile(newExecutablePath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, header.FileInfo().Mode())
 				if err != nil {
 					return "", err
@@ -327,14 +328,14 @@ func replaceExecutable(oldExecutablePath, newExecutablePath string) error {
 				_ = os.Rename(backupPath, oldExecutablePath) // Rollback
 				return fmt.Errorf("failed to open old executable for writing: %w", errCreate)
 			}
-			
+
 			// Ensure dst is closed so we can execute it (flushed)
-			// Using a closure to handle the close and error check properly? 
+			// Using a closure to handle the close and error check properly?
 			// Or just standard defer, but we might want to sync.
 			// For simplicity, defer Close is okay, but we should be careful about partial writes.
-			
+
 			if _, errCopy := io.Copy(dst, src); errCopy != nil {
-				dst.Close() // Close before rollback
+				dst.Close()                                  // Close before rollback
 				_ = os.Rename(backupPath, oldExecutablePath) // Rollback
 				return fmt.Errorf("failed to copy new executable: %w", errCopy)
 			}
