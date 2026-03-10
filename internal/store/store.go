@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -114,7 +115,9 @@ func (s *Storage) SaveEntry(entry models.TimeEntry) error {
 	data, err := os.ReadFile(path)
 	var entries []models.TimeEntry
 	if err == nil {
-		json.Unmarshal(data, &entries)
+		if err := json.Unmarshal(data, &entries); err != nil {
+			return fmt.Errorf("failed to parse entries from %s: %w", path, err)
+		}
 	}
 
 	// Update or Append
@@ -192,7 +195,9 @@ func (s *Storage) LoadEntriesForRange(start, end time.Time) ([]models.TimeEntry,
 	for !current.After(end) {
 		entries, err := s.LoadEntries(current)
 		if err != nil {
-			// Ignore error? Or log? For now, continue.
+			// Log warning but continue - allow partial results
+			fmt.Printf("warning: failed to load entries for %s: %v\n", 
+				current.Format("2006-01-02"), err)
 		} else {
 			allEntries = append(allEntries, entries...)
 		}

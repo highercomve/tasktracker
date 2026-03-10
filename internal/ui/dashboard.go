@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/highercomve/tasktracker/internal/models"
@@ -30,7 +31,8 @@ type Dashboard struct {
 	timerData binding.String
 	taskList  []models.TimeEntry
 
-	// State
+	// State - protected by mu
+	mu                  sync.RWMutex
 	activeID            string
 	activeOriginalStart time.Time
 	activeLastStart     time.Time
@@ -59,12 +61,82 @@ func NewDashboard(s *store.Storage) *Dashboard {
 	}
 }
 
+// Safe accessor methods for protected state
+func (d *Dashboard) GetActiveState() int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.activeState
+}
+
+func (d *Dashboard) SetActiveState(state int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.activeState = state
+}
+
+func (d *Dashboard) GetActiveID() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.activeID
+}
+
+func (d *Dashboard) SetActiveID(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.activeID = id
+}
+
+func (d *Dashboard) GetLastActivity() time.Time {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.lastActivity
+}
+
+func (d *Dashboard) SetLastActivity(t time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.lastActivity = t
+}
+
+func (d *Dashboard) IsIdleDialogShowing() bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.isIdleDialogShowing
+}
+
+func (d *Dashboard) SetIsIdleDialogShowing(showing bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.isIdleDialogShowing = showing
+}
+
+func (d *Dashboard) GetAccumulated() int64 {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.accumulated
+}
+
+func (d *Dashboard) SetAccumulated(acc int64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.accumulated = acc
+}
+
+// safeGetMainWindow returns the main window or nil if no windows are available
+func safeGetMainWindow() fyne.Window {
+	windows := fyne.CurrentApp().Driver().AllWindows()
+	if len(windows) == 0 {
+		return nil
+	}
+	return windows[0]
+}
+
 func (d *Dashboard) RegisterActivity() {
-	d.lastActivity = time.Now()
+	d.SetLastActivity(time.Now())
 }
 
 func (d *Dashboard) checkIdle() {
-	if d.activeState != models.TaskStateRunning || d.isIdleDialogShowing {
+	if d.GetActiveState() != models.TaskStateRunning || d.IsIdleDialogShowing() {
 		return
 	}
 
@@ -77,11 +149,14 @@ func (d *Dashboard) checkIdle() {
 		threshold = 5 // Default 5 minutes
 	}
 
-	idleTime := time.Since(d.lastActivity)
+	idleTime := time.Since(d.GetLastActivity())
 	if idleTime > time.Duration(threshold)*time.Minute {
-		d.isIdleDialogShowing = true
+		d.SetIsIdleDialogShowing(true)
 
-		parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+		parentWindow := safeGetMainWindow()
+		if parentWindow == nil {
+			return
+		}
 
 		// Round idle time to minutes for the message
 		idleMinutes := int(idleTime.Minutes())
@@ -94,16 +169,16 @@ func (d *Dashboard) checkIdle() {
 			lang.L("discard_idle_time"),
 			widget.NewLabel(msg),
 			func(keep bool) {
-				d.isIdleDialogShowing = false
+				d.SetIsIdleDialogShowing(false)
 				d.RegisterActivity() // Reset activity after dialog
 
 				if !keep {
 					// Discard idle time
 					// Subtract idleTime from the current run
 					// A simpler way: set activeLastStart to now
+					d.mu.Lock()
 					d.activeLastStart = time.Now()
-					// We might also want to subtract any accumulated time if the idle period spanned across multiple runs,
-					// but usually idle is within the current run.
+					d.mu.Unlock()
 					d.refreshList()
 				}
 			},
@@ -269,11 +344,17 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 			}
 
 			// Calculate duration for display
-			if entry.ID == d.activeID {
+			activeID := d.GetActiveID()
+			activeState := d.GetActiveState()
+			if entry.ID == activeID {
 				// Active task - use in-memory state for live update
-				currentDur := time.Duration(d.accumulated) * time.Second
-				if d.activeState == models.TaskStateRunning {
-					currentDur += time.Since(d.activeLastStart)
+				accumulated := d.GetAccumulated()
+				currentDur := time.Duration(accumulated) * time.Second
+				if activeState == models.TaskStateRunning {
+					d.mu.RLock()
+					lastStart := d.activeLastStart
+					d.mu.RUnlock()
+					currentDur += time.Since(lastStart)
 				}
 				dur.SetText(utils.FormatDuration(currentDur))
 				dur.TextStyle = fyne.TextStyle{Italic: true}
@@ -301,18 +382,21 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 				d.showEditDialog(entry)
 			}
 			delBtn.OnTapped = func() {
-				parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+				parentWindow := safeGetMainWindow()
+				if parentWindow == nil {
+					return
+				}
 				dialog.ShowConfirm(lang.L("confirm_deletion"), lang.L("confirm_delete_task"), func(confirmed bool) {
 					if !confirmed {
 						return
 					}
 
 					// If deleting the active task, clear the active state
-					if entry.ID == d.activeID {
+					if entry.ID == d.GetActiveID() {
 						d.storage.ClearAppState()
-						d.activeID = ""
-						d.activeState = models.TaskStateStopped
-						d.accumulated = 0
+						d.SetActiveID("")
+						d.SetActiveState(models.TaskStateStopped)
+						d.SetAccumulated(0)
 						d.timerData.Set("00:00:00")
 						d.updateButtons()
 					}
@@ -349,12 +433,18 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 				return
 			case <-ticker.C:
 				fyne.Do(func() {
-					if d.activeState == models.TaskStateRunning {
-						dur := time.Duration(d.accumulated)*time.Second + time.Since(d.activeLastStart)
+					activeState := d.GetActiveState()
+					if activeState == models.TaskStateRunning {
+						accumulated := d.GetAccumulated()
+						d.mu.RLock()
+						lastStart := d.activeLastStart
+						d.mu.RUnlock()
+						dur := time.Duration(accumulated)*time.Second + time.Since(lastStart)
 						d.timerData.Set(utils.FormatDuration(dur))
 						d.checkIdle()
-					} else if d.activeState == models.TaskStatePaused {
-						d.timerData.Set(utils.FormatDuration(time.Duration(d.accumulated) * time.Second))
+					} else if activeState == models.TaskStatePaused {
+						accumulated := d.GetAccumulated()
+						d.timerData.Set(utils.FormatDuration(time.Duration(accumulated) * time.Second))
 					} else {
 						// Stopped
 						d.timerData.Set("00:00:00")
@@ -404,6 +494,8 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 // StopTicker stops the background ticker goroutine to prevent memory leaks.
 // Call this when the Dashboard is being destroyed or rebuilt.
 func (d *Dashboard) StopTicker() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.stopTicker != nil {
 		close(d.stopTicker)
 		d.stopTicker = nil
@@ -412,7 +504,11 @@ func (d *Dashboard) StopTicker() {
 
 // showSaveError displays an error dialog when saving fails.
 func (d *Dashboard) showSaveError(err error) {
-	parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+	parentWindow := safeGetMainWindow()
+	if parentWindow == nil {
+		fmt.Printf("error: %v\n", err)
+		return
+	}
 	dialog.ShowError(fmt.Errorf("%s: %w", lang.L("save_error"), err), parentWindow)
 }
 
@@ -439,7 +535,8 @@ func (d *Dashboard) SetupShortcuts(w fyne.Window) {
 }
 
 func (d *Dashboard) updateButtons() {
-	if d.activeState == models.TaskStateRunning {
+	activeState := d.GetActiveState()
+	if activeState == models.TaskStateRunning {
 		d.startBtn.SetText(lang.L("stop"))
 		d.startBtn.SetIcon(theme.MediaStopIcon())
 		d.startBtn.Enable()
@@ -447,7 +544,7 @@ func (d *Dashboard) updateButtons() {
 		d.pauseBtn.SetText(lang.L("pause"))
 		d.pauseBtn.SetIcon(theme.MediaPauseIcon())
 		d.pauseBtn.Enable()
-	} else if d.activeState == models.TaskStatePaused {
+	} else if activeState == models.TaskStatePaused {
 		d.startBtn.SetText(lang.L("stop"))
 		d.startBtn.SetIcon(theme.MediaStopIcon())
 		d.startBtn.Enable()
@@ -473,32 +570,39 @@ func (d *Dashboard) checkForActiveTask() {
 		entries, _ := d.storage.LoadEntries(state.ActiveTaskDate)
 		for _, e := range entries {
 			if e.ID == state.ActiveTaskID {
-				d.activeID = e.ID
+				d.SetActiveID(e.ID)
+				d.mu.Lock()
 				d.activeOriginalStart = e.StartTime
 				d.activeLastStart = state.LastStartTime
-				d.accumulated = e.Accumulated
-				d.activeState = e.State
-
+				d.mu.Unlock()
+				d.SetAccumulated(e.Accumulated)
+				state := e.State
 				// If state is blank (legacy), assume running
-				if d.activeState == 0 {
-					d.activeState = models.TaskStateRunning
+				if state == 0 {
+					state = models.TaskStateRunning
 				}
+				d.SetActiveState(state)
 
 				d.updateButtons()
 				return
 			}
 		}
+		// Entry not found - log and clear state
+		fmt.Printf("warning: active task %s not found; clearing state\n", state.ActiveTaskID)
+		d.storage.ClearAppState()
 	}
 
 	// Fallback: Check today's entries for any running task (legacy support)
 	entries, _ := d.storage.LoadEntries(time.Now())
 	for _, e := range entries {
 		if e.EndTime.IsZero() {
-			d.activeID = e.ID
+			d.SetActiveID(e.ID)
+			d.mu.Lock()
 			d.activeOriginalStart = e.StartTime
 			d.activeLastStart = e.StartTime // Assume started just now if legacy? Or original start.
-			d.accumulated = 0
-			d.activeState = models.TaskStateRunning
+			d.mu.Unlock()
+			d.SetAccumulated(0)
+			d.SetActiveState(models.TaskStateRunning)
 
 			// Save migrated state
 			d.saveState()
@@ -507,28 +611,41 @@ func (d *Dashboard) checkForActiveTask() {
 		}
 	}
 
-	d.activeState = models.TaskStateStopped
+	d.SetActiveState(models.TaskStateStopped)
 	d.updateButtons()
 }
 
 func (d *Dashboard) saveState() {
+	d.mu.RLock()
+	activeID := d.activeID
+	activeOriginalStart := d.activeOriginalStart
+	activeLastStart := d.activeLastStart
+	d.mu.RUnlock()
+	
 	d.storage.SaveAppState(store.AppState{
-		ActiveTaskID:   d.activeID,
-		ActiveTaskDate: d.activeOriginalStart,
-		LastStartTime:  d.activeLastStart,
+		ActiveTaskID:   activeID,
+		ActiveTaskDate: activeOriginalStart,
+		LastStartTime:  activeLastStart,
 	})
 }
 
 func (d *Dashboard) updateActiveEntry() error {
 	// Helper to update the persistent entry with current in-memory values (accumulated, state)
-	entries, err := d.storage.LoadEntries(d.activeOriginalStart)
+	d.mu.RLock()
+	activeOriginalStart := d.activeOriginalStart
+	activeID := d.activeID
+	activeState := d.activeState
+	accumulated := d.accumulated
+	d.mu.RUnlock()
+	
+	entries, err := d.storage.LoadEntries(activeOriginalStart)
 	if err != nil {
 		return err
 	}
 	for _, e := range entries {
-		if e.ID == d.activeID {
-			e.State = d.activeState
-			e.Accumulated = d.accumulated
+		if e.ID == activeID {
+			e.State = activeState
+			e.Accumulated = accumulated
 			// StartTime remains original
 			return d.storage.SaveEntry(e)
 		}
@@ -538,7 +655,7 @@ func (d *Dashboard) updateActiveEntry() error {
 
 func (d *Dashboard) StartTask(desc, projectID string, tags []string) {
 	// If another task is running, stop it
-	if d.activeID != "" {
+	if d.GetActiveID() != "" {
 		d.StopTask()
 	}
 
@@ -558,31 +675,39 @@ func (d *Dashboard) StartTask(desc, projectID string, tags []string) {
 		return
 	}
 
-	d.activeID = entry.ID
+	d.SetActiveID(entry.ID)
+	d.mu.Lock()
 	d.activeOriginalStart = now
 	d.activeLastStart = now
-	d.accumulated = 0
-	d.activeState = models.TaskStateRunning
+	d.mu.Unlock()
+	d.SetAccumulated(0)
+	d.SetActiveState(models.TaskStateRunning)
 
 	d.saveState()
 	d.updateButtons()
 }
 
 func (d *Dashboard) PauseTask() {
-	if d.activeState != models.TaskStateRunning {
+	if d.GetActiveState() != models.TaskStateRunning {
 		return
 	}
 	now := time.Now()
+	
+	d.mu.Lock()
 	prevAccumulated := d.accumulated
 	prevState := d.activeState
-
+	prevLastStart := d.activeLastStart
 	d.accumulated += int64(now.Sub(d.activeLastStart).Seconds())
 	d.activeState = models.TaskStatePaused
+	d.mu.Unlock()
 
 	if err := d.updateActiveEntry(); err != nil {
 		// Revert state on error
+		d.mu.Lock()
 		d.accumulated = prevAccumulated
 		d.activeState = prevState
+		d.activeLastStart = prevLastStart
+		d.mu.Unlock()
 		d.showSaveError(err)
 		return
 	}
@@ -591,19 +716,23 @@ func (d *Dashboard) PauseTask() {
 }
 
 func (d *Dashboard) ResumeTask() {
-	if d.activeState != models.TaskStatePaused {
+	if d.GetActiveState() != models.TaskStatePaused {
 		return
 	}
+	d.mu.Lock()
 	prevLastStart := d.activeLastStart
 	prevState := d.activeState
 
 	d.activeLastStart = time.Now()
 	d.activeState = models.TaskStateRunning
+	d.mu.Unlock()
 
 	if err := d.updateActiveEntry(); err != nil {
 		// Revert state on error
+		d.mu.Lock()
 		d.activeLastStart = prevLastStart
 		d.activeState = prevState
+		d.mu.Unlock()
 		d.showSaveError(err)
 		return
 	}
@@ -612,40 +741,49 @@ func (d *Dashboard) ResumeTask() {
 }
 
 func (d *Dashboard) TogglePause() {
-	if d.activeState == models.TaskStateRunning {
+	activeState := d.GetActiveState()
+	if activeState == models.TaskStateRunning {
 		d.PauseTask()
-	} else if d.activeState == models.TaskStatePaused {
+	} else if activeState == models.TaskStatePaused {
 		d.ResumeTask()
 	}
 	d.refreshList()
 }
 
 func (d *Dashboard) StopTask() {
-	if d.activeID == "" {
+	if d.GetActiveID() == "" {
 		return
 	}
 
 	now := time.Now()
 
 	// Load entry to finalize
-	entries, err := d.storage.LoadEntries(d.activeOriginalStart)
+	d.mu.RLock()
+	activeOriginalStart := d.activeOriginalStart
+	activeID := d.activeID
+	accumulated := d.accumulated
+	activeState := d.activeState
+	activeLastStart := d.activeLastStart
+	d.mu.RUnlock()
+
+	entries, err := d.storage.LoadEntries(activeOriginalStart)
 	if err != nil {
 		d.showSaveError(err)
 		return
 	}
 
 	for _, e := range entries {
-		if e.ID == d.activeID {
+		if e.ID == activeID {
 			// Calculate final duration
-			finalDuration := d.accumulated
-			if d.activeState == models.TaskStateRunning {
-				finalDuration += int64(now.Sub(d.activeLastStart).Seconds())
+			finalDuration := accumulated
+			if activeState == models.TaskStateRunning {
+				finalDuration += int64(now.Sub(activeLastStart).Seconds())
 			}
 
 			e.EndTime = now
 			e.Duration = finalDuration
 			e.State = models.TaskStateStopped
-			e.Accumulated = d.accumulated // Optional: keep this for record
+			e.Accumulated = accumulated // Optional: keep this for record
 
 			if err := d.storage.SaveEntry(e); err != nil {
 				d.showSaveError(err)
@@ -657,9 +795,9 @@ func (d *Dashboard) StopTask() {
 
 	// Clear state
 	d.storage.ClearAppState()
-	d.activeID = ""
-	d.activeState = models.TaskStateStopped
-	d.accumulated = 0
+	d.SetActiveID("")
+	d.SetActiveState(models.TaskStateStopped)
+	d.SetAccumulated(0)
 	d.timerData.Set("00:00:00")
 
 	d.updateButtons()
@@ -711,7 +849,10 @@ func (d *Dashboard) showEditDialog(entry models.TimeEntry) {
 		widget.NewFormItem(lang.L("end_time"), endEntry),
 	}
 
-	parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+	parentWindow := safeGetMainWindow()
+	if parentWindow == nil {
+		return
+	}
 	dlg := dialog.NewForm(lang.L("edit_task"), lang.L("save"), lang.L("cancel"), items, func(b bool) {
 		if !b {
 			return

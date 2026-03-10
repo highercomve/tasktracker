@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -311,8 +312,12 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 			filename := fmt.Sprintf("report_%s_%s.pdf", start.Format("20060102"), end.Format("20060102"))
 
 			dlg := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
+				window := safeGetMainWindow()
+				if window == nil {
+					return
+				}
 				if err != nil {
-					dialog.ShowError(err, fyne.CurrentApp().Driver().AllWindows()[0])
+					dialog.ShowError(err, window)
 					return
 				}
 				if writer == nil {
@@ -323,16 +328,16 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 				path := writer.URI().Path()
 				entries, err := r.storage.LoadEntriesForRange(start, end)
 				if err != nil {
-					dialog.ShowError(err, fyne.CurrentApp().Driver().AllWindows()[0])
+					dialog.ShowError(err, window)
 					return
 				}
 
 				if err := GeneratePDF(path, entries, start, end, groupBy); err != nil {
-					dialog.ShowError(err, fyne.CurrentApp().Driver().AllWindows()[0])
+					dialog.ShowError(err, window)
 				} else {
-					dialog.ShowInformation(lang.L("success"), lang.L("pdf_saved"), fyne.CurrentApp().Driver().AllWindows()[0])
+					dialog.ShowInformation(lang.L("success"), lang.L("pdf_saved"), window)
 				}
-			}, fyne.CurrentApp().Driver().AllWindows()[0])
+			}, safeGetMainWindow())
 
 			dlg.SetFileName(filename)
 			dlg.Show()
@@ -522,7 +527,11 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	dailyToolbarContainer := container.NewVBox()
 	var rebuildDailyToolbar func()
 	rebuildDailyToolbar = func() {
-		canvas := fyne.CurrentApp().Driver().AllWindows()[0].Canvas()
+		window := safeGetMainWindow()
+		if window == nil {
+			return
+		}
+		canvas := window.Canvas()
 		toolbar := r.createResponsiveToolbar(canvas, dailyNavControls, dailyFilterControls, dailyBadgeContainer, nil, dailyFilterState)
 		dailyToolbarContainer.Objects = []fyne.CanvasObject{toolbar}
 		dailyToolbarContainer.Refresh()
@@ -537,8 +546,14 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	// Listen for window resize to rebuild toolbar
 	go func() {
 		// Initial build after a short delay to ensure window is ready
-		time.Sleep(100 * time.Millisecond)
-		rebuildDailyToolbar()
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+			rebuildDailyToolbar()
+		}
 	}()
 
 	// Weekly Tab
@@ -726,7 +741,11 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	weeklyToolbarContainer := container.NewVBox()
 	var rebuildWeeklyToolbar func()
 	rebuildWeeklyToolbar = func() {
-		canvas := fyne.CurrentApp().Driver().AllWindows()[0].Canvas()
+		window := safeGetMainWindow()
+		if window == nil {
+			return
+		}
+		canvas := window.Canvas()
 		toolbar := r.createResponsiveToolbar(canvas, weeklyNavControls, weeklyFilterControls, weeklyBadgeContainer, nil, weeklyFilterState)
 		weeklyToolbarContainer.Objects = []fyne.CanvasObject{toolbar}
 		weeklyToolbarContainer.Refresh()
@@ -740,8 +759,14 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 
 	// Listen for window resize to rebuild toolbar
 	go func() {
-		time.Sleep(100 * time.Millisecond)
-		rebuildWeeklyToolbar()
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+			rebuildWeeklyToolbar()
+		}
 	}()
 
 	// Monthly Tab
@@ -925,7 +950,11 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	monthlyToolbarContainer := container.NewVBox()
 	var rebuildMonthlyToolbar func()
 	rebuildMonthlyToolbar = func() {
-		canvas := fyne.CurrentApp().Driver().AllWindows()[0].Canvas()
+		window := safeGetMainWindow()
+		if window == nil {
+			return
+		}
+		canvas := window.Canvas()
 		toolbar := r.createResponsiveToolbar(canvas, monthlyNavControls, monthlyFilterControls, monthlyBadgeContainer, nil, monthlyFilterState)
 		monthlyToolbarContainer.Objects = []fyne.CanvasObject{toolbar}
 		monthlyToolbarContainer.Refresh()
@@ -939,8 +968,14 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 
 	// Listen for window resize to rebuild toolbar
 	go func() {
-		time.Sleep(100 * time.Millisecond)
-		rebuildMonthlyToolbar()
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+			rebuildMonthlyToolbar()
+		}
 	}()
 
 	// Custom Range Tab
@@ -1172,7 +1207,11 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	customToolbarContainer := container.NewVBox()
 	var rebuildCustomToolbar func()
 	rebuildCustomToolbar = func() {
-		canvas := fyne.CurrentApp().Driver().AllWindows()[0].Canvas()
+		window := safeGetMainWindow()
+		if window == nil {
+			return
+		}
+		canvas := window.Canvas()
 		toolbar := r.createResponsiveToolbar(canvas, customNavControls, customFilterControls, customBadgeContainer, nil, customFilterState)
 		customToolbarContainer.Objects = []fyne.CanvasObject{toolbar}
 		customToolbarContainer.Refresh()
@@ -1186,8 +1225,14 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 
 	// Listen for window resize to rebuild toolbar
 	go func() {
-		time.Sleep(100 * time.Millisecond)
-		rebuildCustomToolbar()
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+			rebuildCustomToolbar()
+		}
 	}()
 
 	tabs := container.NewAppTabs(
@@ -1545,7 +1590,10 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, onRe
 					r.showEditDialog(entry, onRefresh)
 				}
 				delBtn.OnTapped = func() {
-					parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+					parentWindow := safeGetMainWindow()
+					if parentWindow == nil {
+						return
+					}
 					dialog.ShowConfirm(lang.L("confirm_deletion"), lang.L("confirm_delete_task"), func(confirmed bool) {
 						if !confirmed {
 							return
@@ -1610,7 +1658,10 @@ func (r *Reports) showEditDialog(entry models.TimeEntry, onSuccess func()) {
 		widget.NewFormItem(lang.L("end_time"), endEntry),
 	}
 
-	parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+	parentWindow := safeGetMainWindow()
+	if parentWindow == nil {
+		return
+	}
 	dlg := dialog.NewForm(lang.L("edit_task"), lang.L("save"), lang.L("cancel"), items, func(b bool) {
 		if !b {
 			return

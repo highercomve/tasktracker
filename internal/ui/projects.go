@@ -167,7 +167,10 @@ func (p *Projects) updateProjectItem(o fyne.CanvasObject, project models.Project
 
 	// Delete button
 	delBtn.OnTapped = func() {
-		parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+		parentWindow := safeGetMainWindow()
+		if parentWindow == nil {
+			return
+		}
 
 		// Count tasks assigned to this project
 		stats := p.calculateProjectStats(project.ID)
@@ -262,7 +265,10 @@ func (p *Projects) showCreateProjectDialog(onSave func()) {
 		widget.NewFormItem("Color", colorEntry),
 	}
 
-	parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+	parentWindow := safeGetMainWindow()
+	if parentWindow == nil {
+		return
+	}
 	dlg := dialog.NewForm(lang.L("create_project"), lang.L("create"), lang.L("cancel"), items, func(b bool) {
 		if !b {
 			return
@@ -316,7 +322,10 @@ func (p *Projects) showEditProjectDialog(project models.Project, onSave func()) 
 		widget.NewFormItem("Color", colorEntry),
 	}
 
-	parentWindow := fyne.CurrentApp().Driver().AllWindows()[0]
+	parentWindow := safeGetMainWindow()
+	if parentWindow == nil {
+		return
+	}
 	dlg := dialog.NewForm(lang.L("edit_project"), lang.L("save"), lang.L("cancel"), items, func(b bool) {
 		if !b {
 			return

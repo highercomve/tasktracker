@@ -3,12 +3,15 @@ package main
 import (
 	_ "embed" // Required for go:embed
 
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -114,13 +117,42 @@ func main() {
 		os.Setenv("FYNE_LANG", "en")
 	}
 
+	// Self-update with timeout - allows for graceful cancellation
+	var wg sync.WaitGroup
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	wg.Add(1)
 	go func() {
-		// Call self-update check at startup
-		err := updater.SelfUpdate("highercomve", "tasktracker") // Replace with actual GitHub owner and repo
-		if err != nil {
-			log.Printf("Self-update failed: %v", err) // Use log for errors
+		defer wg.Done()
+		// Check for updates with timeout
+		select {
+		case <-ctx.Done():
+			log.Printf("Self-update check timed out")
+			return
+		default:
+			err := updater.SelfUpdate("highercomve", "tasktracker")
+			if err != nil {
+				log.Printf("Self-update failed: %v", err)
+			}
 		}
 	}()
+
+	// Wait for update check with a reasonable timeout
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	// Don't block app startup - allow 2 seconds for update check
+	select {
+	case <-done:
+		// Update check finished
+	case <-time.After(2 * time.Second):
+		// Timeout - continue with app startup
+		log.Printf("Self-update check took too long, continuing with app startup")
+	}
 
 	a := app.NewWithID("com.highercomve.task-tracker")
 	a.Settings().SetTheme(theme.DarkTheme())
