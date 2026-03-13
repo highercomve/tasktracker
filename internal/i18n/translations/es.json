@@ -112,5 +112,12 @@
     "no_project": "Sin Proyecto",
     "select_project": "Seleccionar Proyecto",
     "project_filter": "Proyecto: %s",
-    "save_error": "Error al guardar"
+    "save_error": "Error al guardar",
+    "billing_settings": "Configuración de Facturación",
+    "hourly_rate": "Tarifa por Hora ($/hora)",
+    "max_hours": "Horas Máximas a Tarifa Estándar (Mensual)",
+    "extra_rate": "Precio de Hora Extra ($/hora)",
+    "total_cost": "Costo Total: ",
+    "standard_cost": "Costo Estándar: ",
+    "extra_cost": "Costo Extra: "
 }

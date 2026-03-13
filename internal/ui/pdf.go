@@ -9,6 +9,7 @@ import (
 	"github.com/highercomve/tasktracker/internal/models"
 	"github.com/highercomve/tasktracker/internal/service"
 	"github.com/highercomve/tasktracker/internal/utils"
+	"github.com/spf13/viper"
 	"github.com/johnfercher/maroto/pkg/color"
 	"github.com/johnfercher/maroto/pkg/consts"
 	"github.com/johnfercher/maroto/pkg/pdf"
@@ -193,16 +194,63 @@ func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, 
 	}
 
 	// Summary
-	m.Row(20, func() {
+	m.Row(10, func() {
 		m.Col(12, func() {
 			m.Text(fmt.Sprintf("%s: %s", lang.L("total_time"), utils.FormatDuration(totalDuration)), props.Text{
-				Top:   10,
+				Top:   0,
 				Style: consts.Bold,
 				Align: consts.Right,
 				Size:  12,
 			})
 		})
 	})
+
+	// Billing summary in PDF
+	hourlyRate := viper.GetFloat64("hourly_rate")
+	if hourlyRate > 0 {
+		billingConfig := service.BillingConfig{
+			HourlyRate: hourlyRate,
+			MaxHours:   viper.GetFloat64("max_hours"),
+			ExtraRate:  viper.GetFloat64("extra_rate"),
+		}
+
+		periodDays := int(end.Sub(start).Hours()/24) + 1
+		billing := service.CalculateBilling(totalDuration, billingConfig, periodDays)
+
+		m.Row(10, func() {
+			m.Col(12, func() {
+				m.Text(fmt.Sprintf("%s%.2f", lang.L("total_cost"), billing.TotalCost), props.Text{
+					Top:   0,
+					Style: consts.Bold,
+					Align: consts.Right,
+					Size:  12,
+				})
+			})
+		})
+
+		if billing.ExtraCost > 0 {
+			m.Row(8, func() {
+				m.Col(12, func() {
+					m.Text(fmt.Sprintf("%s%.2f", lang.L("standard_cost"), billing.StandardCost), props.Text{
+						Top:   0,
+						Style: consts.Normal,
+						Align: consts.Right,
+						Size:  10,
+					})
+				})
+			})
+			m.Row(8, func() {
+				m.Col(12, func() {
+					m.Text(fmt.Sprintf("%s%.2f", lang.L("extra_cost"), billing.ExtraCost), props.Text{
+						Top:   0,
+						Style: consts.Normal,
+						Align: consts.Right,
+						Size:  10,
+					})
+				})
+			})
+		}
+	}
 
 	return m.OutputFileAndClose(path)
 }

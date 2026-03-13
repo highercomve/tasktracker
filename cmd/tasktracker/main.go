@@ -64,6 +64,9 @@ func setupViper() error {
 	}
 
 	viper.SetDefault("data_folder", "./data")
+	viper.SetDefault("hourly_rate", 0.0)
+	viper.SetDefault("max_hours", 0.0)
+	viper.SetDefault("extra_rate", 0.0)
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok || os.IsNotExist(err) {

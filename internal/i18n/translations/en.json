@@ -112,5 +112,12 @@
     "no_project": "No Project",
     "select_project": "Select Project",
     "project_filter": "Project: %s",
-    "save_error": "Failed to save"
+    "save_error": "Failed to save",
+    "billing_settings": "Billing Settings",
+    "hourly_rate": "Hourly Rate ($/hour)",
+    "max_hours": "Max Hours at Standard Rate (Monthly)",
+    "extra_rate": "Extra Hour Price ($/hour)",
+    "total_cost": "Total Cost: ",
+    "standard_cost": "Standard Cost: ",
+    "extra_cost": "Extra Cost: "
 }

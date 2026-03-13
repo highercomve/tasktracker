@@ -41,6 +41,18 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 	thresholdEntry := widget.NewEntry()
 	thresholdEntry.SetText(fmt.Sprintf("%d", idleThreshold))
 
+	hourlyRate := viper.GetFloat64("hourly_rate")
+	hourlyRateEntry := widget.NewEntry()
+	hourlyRateEntry.SetText(fmt.Sprintf("%.2f", hourlyRate))
+
+	maxHours := viper.GetFloat64("max_hours")
+	maxHoursEntry := widget.NewEntry()
+	maxHoursEntry.SetText(fmt.Sprintf("%.2f", maxHours))
+
+	extraRate := viper.GetFloat64("extra_rate")
+	extraRateEntry := widget.NewEntry()
+	extraRateEntry.SetText(fmt.Sprintf("%.2f", extraRate))
+
 	browseBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
 		dialog.NewFolderOpen(func(uri fyne.ListableURI, err error) {
 			if err != nil {
@@ -67,12 +79,20 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 		newIdleThreshold := 5
 		fmt.Sscanf(thresholdEntry.Text, "%d", &newIdleThreshold)
 
+		var newHourlyRate, newMaxHours, newExtraRate float64
+		fmt.Sscanf(hourlyRateEntry.Text, "%f", &newHourlyRate)
+		fmt.Sscanf(maxHoursEntry.Text, "%f", &newMaxHours)
+		fmt.Sscanf(extraRateEntry.Text, "%f", &newExtraRate)
+
 		oldDataFolder := c.storage.BaseDir
 
 		saveConfig := func() {
 			viper.Set("data_folder", newDataFolder)
 			viper.Set("idle_detection", newIdleEnabled)
 			viper.Set("idle_threshold", newIdleThreshold)
+			viper.Set("hourly_rate", newHourlyRate)
+			viper.Set("max_hours", newMaxHours)
+			viper.Set("extra_rate", newExtraRate)
 			err := viper.WriteConfigAs(c.userConfigFilePath)
 			if err != nil {
 				dialog.ShowError(err, c.window)
@@ -138,6 +158,11 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 			widget.NewFormItem(lang.L("data_folder"), folderContainer),
 			widget.NewFormItem(lang.L("idle_detection"), idleCheck),
 			widget.NewFormItem(lang.L("idle_threshold"), thresholdEntry),
+			widget.NewFormItem("", widget.NewSeparator()),
+			widget.NewFormItem(lang.L("billing_settings"), widget.NewLabel("")),
+			widget.NewFormItem(lang.L("hourly_rate"), hourlyRateEntry),
+			widget.NewFormItem(lang.L("max_hours"), maxHoursEntry),
+			widget.NewFormItem(lang.L("extra_rate"), extraRateEntry),
 		),
 		saveBtn,
 		widget.NewSeparator(),

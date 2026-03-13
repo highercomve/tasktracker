@@ -11,6 +11,7 @@ import (
 	"github.com/highercomve/tasktracker/internal/service"
 	"github.com/highercomve/tasktracker/internal/store"
 	"github.com/highercomve/tasktracker/internal/utils"
+	"github.com/spf13/viper"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
@@ -289,7 +290,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 				}
 			}
 		}
-		reportUI := r.renderHistory(entries, groupBy, refreshFunc)
+		reportUI := r.renderHistory(entries, groupBy, start, end, refreshFunc)
 		content.Objects = []fyne.CanvasObject{reportUI}
 		content.Refresh()
 	}
@@ -503,6 +504,12 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 			updateDaily()
 		}),
 		dailyLabel,
+		layout.NewSpacer(),
+		createExportButton(func() (time.Time, time.Time) {
+			return selectedDay, selectedDay
+		}, func() string {
+			return service.GroupByNone
+		}),
 	}
 
 	// Filter controls for daily tab
@@ -516,11 +523,6 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 			widget.NewLabel(lang.L("filter_by_project")),
 			dailyProjectSelector,
 		),
-		createExportButton(func() (time.Time, time.Time) {
-			return selectedDay, selectedDay
-		}, func() string {
-			return service.GroupByNone
-		}),
 	}
 
 	// Create responsive toolbar for daily tab
@@ -713,6 +715,12 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 			updateWeekly()
 		}),
 		weeklyLabel,
+		layout.NewSpacer(),
+		createExportButton(func() (time.Time, time.Time) {
+			return selectedWeekStart, selectedWeekStart.AddDate(0, 0, 6)
+		}, func() string {
+			return weeklyGroupBy
+		}),
 	}
 
 	// Filter controls for weekly tab
@@ -730,11 +738,6 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 			widget.NewLabel(lang.L("filter_by_project")),
 			weeklyProjectSelector,
 		),
-		createExportButton(func() (time.Time, time.Time) {
-			return selectedWeekStart, selectedWeekStart.AddDate(0, 0, 6)
-		}, func() string {
-			return weeklyGroupBy
-		}),
 	}
 
 	// Create responsive toolbar for weekly tab
@@ -922,6 +925,12 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 			updateMonthly()
 		}),
 		monthlyLabel,
+		layout.NewSpacer(),
+		createExportButton(func() (time.Time, time.Time) {
+			return selectedMonth, selectedMonth.AddDate(0, 1, -1)
+		}, func() string {
+			return monthlyGroupBy
+		}),
 	}
 
 	// Filter controls for monthly tab
@@ -939,11 +948,6 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 			widget.NewLabel(lang.L("filter_by_project")),
 			monthlyProjectSelector,
 		),
-		createExportButton(func() (time.Time, time.Time) {
-			return selectedMonth, selectedMonth.AddDate(0, 1, -1)
-		}, func() string {
-			return monthlyGroupBy
-		}),
 	}
 
 	// Create responsive toolbar for monthly tab
@@ -1176,6 +1180,12 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		widget.NewLabel(lang.L("from")), startBtn,
 		widget.NewLabel(lang.L("to")), endBtn,
 		lastWeekBtn, lastMonthBtn, last3MonthsBtn, allTimeBtn,
+		layout.NewSpacer(),
+		createExportButton(func() (time.Time, time.Time) {
+			return startDate, endDate
+		}, func() string {
+			return customGroupBy
+		}),
 	}
 
 	// Filter controls for custom tab
@@ -1195,11 +1205,6 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		),
 		widget.NewButtonWithIcon(lang.L("refresh"), theme.ViewRefreshIcon(), func() {
 			updateCustom()
-		}),
-		createExportButton(func() (time.Time, time.Time) {
-			return startDate, endDate
-		}, func() string {
-			return customGroupBy
 		}),
 	}
 
@@ -1267,7 +1272,7 @@ type ListItem struct {
 	Entry    models.TimeEntry
 }
 
-func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, onRefresh func()) fyne.CanvasObject {
+func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, start, end time.Time, onRefresh func()) fyne.CanvasObject {
 	if len(entries) == 0 {
 		return widget.NewLabel(lang.L("no_entries"))
 	}
@@ -1286,6 +1291,29 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, onRe
 	}
 
 	summaryText := fmt.Sprintf(lang.L("total_time")+"%s\n", utils.FormatDuration(total))
+
+	// Billing calculation
+	hourlyRate := viper.GetFloat64("hourly_rate")
+	if hourlyRate > 0 {
+		billingConfig := service.BillingConfig{
+			HourlyRate: hourlyRate,
+			MaxHours:   viper.GetFloat64("max_hours"),
+			ExtraRate:  viper.GetFloat64("extra_rate"),
+		}
+
+		// Calculate period days
+		periodDays := 0
+		if !start.IsZero() && !end.IsZero() {
+			periodDays = int(end.Sub(start).Hours()/24) + 1
+		}
+
+		billing := service.CalculateBilling(total, billingConfig, periodDays)
+		summaryText += fmt.Sprintf("%s%.2f\n", lang.L("total_cost"), billing.TotalCost)
+		if billing.ExtraCost > 0 {
+			summaryText += fmt.Sprintf("  - %s%.2f\n", lang.L("standard_cost"), billing.StandardCost)
+			summaryText += fmt.Sprintf("  - %s%.2f\n", lang.L("extra_cost"), billing.ExtraCost)
+		}
+	}
 
 	// Add project totals if grouping by project
 	if groupBy == service.GroupByProject {
