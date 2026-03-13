@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"time"
 
@@ -9,43 +10,80 @@ import (
 	"github.com/highercomve/tasktracker/internal/models"
 	"github.com/highercomve/tasktracker/internal/service"
 	"github.com/highercomve/tasktracker/internal/utils"
-	"github.com/spf13/viper"
 	"github.com/johnfercher/maroto/pkg/color"
 	"github.com/johnfercher/maroto/pkg/consts"
 	"github.com/johnfercher/maroto/pkg/pdf"
 	"github.com/johnfercher/maroto/pkg/props"
+	"github.com/spf13/viper"
+)
+
+var (
+	blueColor  = color.Color{Red: 10, Green: 50, Blue: 100}
+	greyColor  = color.Color{Red: 200, Green: 200, Blue: 200}
+	whiteColor = color.Color{Red: 255, Green: 255, Blue: 255}
 )
 
 func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, groupBy string) error {
 	m := pdf.NewMaroto(consts.Portrait, consts.A4)
-	m.SetPageMargins(20, 10, 20)
+	m.SetPageMargins(20, 15, 20)
+
+	// Background for the whole page (Optional, but can look nice)
+	// m.SetBackgroundColor(color.Color{Red: 252, Green: 252, Blue: 252})
 
 	// Header
 	m.RegisterHeader(func() {
-		m.Row(10, func() {
-			m.Col(12, func() {
+		m.Row(25, func() {
+			m.Col(3, func() {
+				// Try to load Icon.png as logo
+				if _, err := os.Stat("Icon.png"); err == nil {
+					_ = m.FileImage("Icon.png", props.Rect{
+						Percent: 100,
+						Center:  true,
+					})
+				}
+			})
+			m.ColSpace(3)
+			m.Col(6, func() {
 				m.Text(lang.L("report_title"), props.Text{
-					Top:   3,
+					Size:  18,
 					Style: consts.Bold,
-					Align: consts.Center,
-					Size:  16,
+					Align: consts.Right,
+					Color: blueColor,
+				})
+				m.Text(fmt.Sprintf("%s - %s", start.Format("2006-01-02"), end.Format("2006-01-02")), props.Text{
+					Top:   8,
+					Size:  12,
+					Style: consts.Italic,
+					Align: consts.Right,
 				})
 			})
 		})
+		m.Row(2, func() {})
+		m.Line(1.0, props.Line{
+			Color: blueColor,
+		})
+	})
+
+	// Footer
+	m.RegisterFooter(func() {
 		m.Row(10, func() {
-			m.Col(12, func() {
-				dateRange := fmt.Sprintf("%s - %s", start.Format("2006-01-02"), end.Format("2006-01-02"))
-				m.Text(dateRange, props.Text{
-					Top:   3,
-					Style: consts.Normal,
-					Align: consts.Center,
-					Size:  12,
+			m.Col(6, func() {
+				m.Text(fmt.Sprintf("Generated on %s", time.Now().Format("2006-01-02 15:04")), props.Text{
+					Top:  5,
+					Size: 8,
+				})
+			})
+			m.Col(6, func() {
+				m.Text(fmt.Sprintf("Page %d", m.GetCurrentPage()), props.Text{
+					Top:   5,
+					Size:  8,
+					Align: consts.Right,
 				})
 			})
 		})
 	})
 
-	// Table Header
+	// Table Headers
 	headers := []string{
 		lang.L("date"),
 		lang.L("task_description"),
@@ -62,26 +100,19 @@ func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, 
 		totalDuration += dur
 	}
 
-	m.Row(10, func() {
+	m.Row(15, func() {
 		m.Col(12, func() {
 			m.Text(lang.L("task_history"), props.Text{
-				Top:   5,
+				Top:   10,
 				Style: consts.Bold,
 				Size:  14,
+				Color: blueColor,
 			})
 		})
 	})
 
-	// Helper to determine group key and title
-	/*
-	   REMOVED local definitions of getGroupKey and getGroupTitle
-	   because they are now available in internal/ui/grouping.go (same package)
-	*/
-
 	if groupBy == service.GroupByNone {
-		// Content
 		rows := [][]string{}
-
 		for _, e := range entries {
 			dur := time.Duration(e.Duration) * time.Second
 			if e.EndTime.IsZero() {
@@ -98,14 +129,15 @@ func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, 
 		m.TableList(headers, rows, props.TableList{
 			HeaderProp: props.TableListContent{
 				Size:      10,
-				GridSizes: []uint{3, 6, 3},
+				GridSizes: []uint{2, 7, 3},
+				Color:     whiteColor,
 			},
 			ContentProp: props.TableListContent{
-				Size:      10,
-				GridSizes: []uint{3, 6, 3},
+				Size:      9,
+				GridSizes: []uint{2, 7, 3},
 			},
 			Align:                consts.Center,
-			AlternatedBackground: &color.Color{Red: 240, Green: 240, Blue: 240},
+			AlternatedBackground: &color.Color{Red: 245, Green: 245, Blue: 245},
 			HeaderContentSpace:   1,
 			Line:                 false,
 		})
@@ -147,60 +179,66 @@ func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, 
 			if len(groupEntries) > 0 {
 				title = service.GetGroupTitle(groupEntries[0].StartTime, groupBy)
 			}
-			// Header Title Only (Total in footer now)
-			headerTitle := title
 
-			m.Row(10, func() {
+			// Group Header Row
+			m.Row(8, func() {
 				m.Col(12, func() {
-					m.Text(headerTitle, props.Text{
-						Top:   5,
+					m.Text(title, props.Text{
+						Top:   2,
 						Style: consts.Bold,
-						Size:  12,
-						Align: consts.Left,
+						Size:  11,
+						Color: blueColor,
 					})
 				})
 			})
 
 			m.TableList(headers, rows, props.TableList{
 				HeaderProp: props.TableListContent{
-					Size:      10,
-					GridSizes: []uint{3, 6, 3},
+					Size:      9,
+					GridSizes: []uint{2, 7, 3},
 				},
 				ContentProp: props.TableListContent{
-					Size:      10,
-					GridSizes: []uint{3, 6, 3},
+					Size:      9,
+					GridSizes: []uint{2, 7, 3},
 				},
 				Align:                consts.Center,
-				AlternatedBackground: &color.Color{Red: 240, Green: 240, Blue: 240},
+				AlternatedBackground: &color.Color{Red: 248, Green: 248, Blue: 248},
 				HeaderContentSpace:   1,
 				Line:                 false,
 			})
 
 			// Subtotal Footer
-			m.Row(10, func() {
+			m.Row(8, func() {
 				m.Col(12, func() {
 					m.Text(fmt.Sprintf("%s: %s", lang.L("subtotal"), utils.FormatDuration(groupTotal)), props.Text{
-						Top:   0,
 						Style: consts.Bold,
 						Align: consts.Right,
-						Size:  10,
+						Size:  9,
 					})
 				})
 			})
-
-			// Add some space after table
-			m.Row(5, func() {})
+			m.Row(4, func() {}) // Spacer
 		}
 	}
 
-	// Summary
+	m.Row(5, func() {})
+	m.Line(1.0, props.Line{Color: blueColor})
+
+	// Summary Section
 	m.Row(10, func() {
-		m.Col(12, func() {
-			m.Text(fmt.Sprintf("%s: %s", lang.L("total_time"), utils.FormatDuration(totalDuration)), props.Text{
-				Top:   0,
+		m.ColSpace(6)
+		m.Col(3, func() {
+			m.Text(lang.L("total_time"), props.Text{
 				Style: consts.Bold,
-				Align: consts.Right,
 				Size:  12,
+				Align: consts.Left,
+			})
+		})
+		m.Col(3, func() {
+			m.Text(utils.FormatDuration(totalDuration), props.Text{
+				Style: consts.Normal,
+				Size:  12,
+				Align: consts.Right,
 			})
 		})
 	})
@@ -217,22 +255,38 @@ func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, 
 		periodDays := int(end.Sub(start).Hours()/24) + 1
 		billing := service.CalculateBilling(totalDuration, billingConfig, periodDays)
 
-		m.Row(10, func() {
-			m.Col(12, func() {
-				m.Text(fmt.Sprintf("%s%.2f", lang.L("total_cost"), billing.TotalCost), props.Text{
-					Top:   0,
+		m.Row(12, func() {
+			m.ColSpace(6)
+			m.Col(3, func() {
+				m.Text(lang.L("total_cost"), props.Text{
+					Style: consts.Bold,
+					Align: consts.Left,
+					Size:  14,
+					Color: blueColor,
+				})
+			})
+			m.Col(3, func() {
+				m.Text(fmt.Sprintf("%.2f", billing.TotalCost), props.Text{
 					Style: consts.Bold,
 					Align: consts.Right,
-					Size:  12,
+					Size:  14,
+					Color: blueColor,
 				})
 			})
 		})
 
 		if billing.ExtraCost > 0 {
 			m.Row(8, func() {
-				m.Col(12, func() {
-					m.Text(fmt.Sprintf("%s%.2f", lang.L("standard_cost"), billing.StandardCost), props.Text{
-						Top:   0,
+				m.ColSpace(6)
+				m.Col(3, func() {
+					m.Text(lang.L("standard_cost"), props.Text{
+						Style: consts.Normal,
+						Align: consts.Left,
+						Size:  10,
+					})
+				})
+				m.Col(3, func() {
+					m.Text(fmt.Sprintf("%.2f", billing.StandardCost), props.Text{
 						Style: consts.Normal,
 						Align: consts.Right,
 						Size:  10,
@@ -240,9 +294,16 @@ func GeneratePDF(path string, entries []models.TimeEntry, start, end time.Time, 
 				})
 			})
 			m.Row(8, func() {
-				m.Col(12, func() {
-					m.Text(fmt.Sprintf("%s%.2f", lang.L("extra_cost"), billing.ExtraCost), props.Text{
-						Top:   0,
+				m.ColSpace(6)
+				m.Col(3, func() {
+					m.Text(lang.L("extra_cost"), props.Text{
+						Style: consts.Normal,
+						Align: consts.Left,
+						Size:  10,
+					})
+				})
+				m.Col(3, func() {
+					m.Text(fmt.Sprintf("%.2f", billing.ExtraCost), props.Text{
 						Style: consts.Normal,
 						Align: consts.Right,
 						Size:  10,
