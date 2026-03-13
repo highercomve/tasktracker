@@ -13,6 +13,10 @@ EXE_EXT_linux =
 
 LDFLAGS_windows = -H=windowsgui
 
+FYNE_IMAGE_linux = highercomve/fyne-cross-gtk:linux
+FYNE_ENV_linux-amd64 = -env PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig -tags netgo
+FYNE_ENV_linux-arm64 = -env PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig -tags netgo
+
 ZIG_CC_FLAGS_windows = -Wdeprecated-non-prototype -Wl,--subsystem,windows
 ZIG_CC_FLAGS_linux-amd64 = -isystem /usr/include $(LINUX_AMD64_LDFLAGS) # Native build
 ZIG_CC_FLAGS_linux-arm64 = -isystem /usr/include $(LINUX_ARM64_LDFLAGS)
@@ -92,6 +96,8 @@ package-%: go.mod $(wildcard cmd/*.go)
 		-name $(BINARY_NAME)$(EXE_EXT_$(GOOS)) \
 		-icon Icon.png \
 		--app-id com.highercomve.tasktracker \
+		$(if $(FYNE_IMAGE_$(GOOS)),-image $(FYNE_IMAGE_$(GOOS)),) \
+		$(FYNE_ENV_$(GOOS)-$(GOARCH)) \
 		-ldflags="github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)" \
 		$(ENTRY_POINT)
 	@mkdir -p dist/$(GOOS)-$(GOARCH)

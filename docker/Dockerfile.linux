@@ -1,0 +1,19 @@
+FROM fyneio/fyne-cross-images:linux
+
+# Install GCC cross-compilers and GTK3 dev headers for all target architectures
+# The fyne-cross base image is arm64, so:
+# - crossbuild-essential-amd64: cross-compile for amd64 (from arm64 host)
+# - crossbuild-essential-arm64: cross-compile for arm64 (from amd64 host)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        crossbuild-essential-amd64 \
+        crossbuild-essential-arm64 \
+        libgtk-3-dev:amd64 \
+        libgtk-3-dev:arm64 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Replace Zig with wrapper that delegates to GCC cross-compilers
+# fyne-cross internally uses "zig cc -target <arch>" as the C compiler
+RUN mv /usr/local/zig/zig /usr/local/zig/zig.real
+COPY docker/zig-wrapper.sh /usr/local/zig/zig
+RUN chmod +x /usr/local/zig/zig
