@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -12,10 +13,11 @@ import (
 	"github.com/highercomve/tasktracker/internal/store"
 	"github.com/highercomve/tasktracker/internal/utils"
 	"github.com/spf13/viper"
+	"github.com/sqweek/dialog"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
+	fyneDialog "fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
@@ -312,36 +314,34 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 			// Initial filename suggestion
 			filename := fmt.Sprintf("report_%s_%s.pdf", start.Format("20060102"), end.Format("20060102"))
 
-			dlg := dialog.NewFileSave(func(writer fyne.URIWriteCloser, err error) {
-				window := safeGetMainWindow()
-				if window == nil {
-					return
+			path, err := dialog.File().Title(lang.L("export_pdf")).SetStartFile(filename).Filter("PDF files", "pdf").Save()
+			if err != nil {
+				if err != dialog.ErrCancelled {
+					fyneDialog.ShowError(err, safeGetMainWindow())
 				}
-				if err != nil {
-					dialog.ShowError(err, window)
-					return
-				}
-				if writer == nil {
-					return
-				}
-				defer writer.Close()
+				return
+			}
 
-				path := writer.URI().Path()
-				entries, err := r.storage.LoadEntriesForRange(start, end)
-				if err != nil {
-					dialog.ShowError(err, window)
-					return
-				}
+			if path == "" {
+				return
+			}
 
-				if err := GeneratePDF(path, entries, start, end, groupBy); err != nil {
-					dialog.ShowError(err, window)
-				} else {
-					dialog.ShowInformation(lang.L("success"), lang.L("pdf_saved"), window)
-				}
-			}, safeGetMainWindow())
+			entries, err := r.storage.LoadEntriesForRange(start, end)
+			if err != nil {
+				fyneDialog.ShowError(err, safeGetMainWindow())
+				return
+			}
 
-			dlg.SetFileName(filename)
-			dlg.Show()
+			if err := GeneratePDF(path, entries, start, end, groupBy); err != nil {
+				fyneDialog.ShowError(err, safeGetMainWindow())
+			} else {
+				fyneDialog.ShowConfirm(lang.L("success"), lang.L("pdf_saved")+"\n"+lang.L("open_file_question"), func(open bool) {
+					if open {
+						u, _ := url.Parse("file://" + path)
+						fyne.CurrentApp().OpenURL(u)
+					}
+				}, safeGetMainWindow())
+			}
 		})
 	}
 
@@ -1096,7 +1096,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	}
 
 	pickDate := func(current time.Time, onSelect func(time.Time)) {
-		var d dialog.Dialog
+		var d fyneDialog.Dialog
 		cal := widget.NewCalendar(current, func(t time.Time) {
 			onSelect(t)
 			if d != nil {
@@ -1107,7 +1107,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		// We need to find the parent window
 		wins := fyne.CurrentApp().Driver().AllWindows()
 		if len(wins) > 0 {
-			d = dialog.NewCustom(lang.L("select_date"), lang.L("cancel"), container.NewPadded(cal), wins[0])
+			d = fyneDialog.NewCustom(lang.L("select_date"), lang.L("cancel"), container.NewPadded(cal), wins[0])
 			d.Resize(fyne.NewSize(300, 300))
 			d.Show()
 		}
@@ -1622,7 +1622,7 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, star
 					if parentWindow == nil {
 						return
 					}
-					dialog.ShowConfirm(lang.L("confirm_deletion"), lang.L("confirm_delete_task"), func(confirmed bool) {
+					fyneDialog.ShowConfirm(lang.L("confirm_deletion"), lang.L("confirm_delete_task"), func(confirmed bool) {
 						if !confirmed {
 							return
 						}
@@ -1690,7 +1690,7 @@ func (r *Reports) showEditDialog(entry models.TimeEntry, onSuccess func()) {
 	if parentWindow == nil {
 		return
 	}
-	dlg := dialog.NewForm(lang.L("edit_task"), lang.L("save"), lang.L("cancel"), items, func(b bool) {
+	dlg := fyneDialog.NewForm(lang.L("edit_task"), lang.L("save"), lang.L("cancel"), items, func(b bool) {
 		if !b {
 			return
 		}

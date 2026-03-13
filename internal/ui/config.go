@@ -8,11 +8,12 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
+	fyneDialog "fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/lang"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/spf13/viper"
+	"github.com/sqweek/dialog"
 )
 
 type Config struct {
@@ -54,16 +55,16 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 	extraRateEntry.SetText(fmt.Sprintf("%.2f", extraRate))
 
 	browseBtn := widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
-		dialog.NewFolderOpen(func(uri fyne.ListableURI, err error) {
-			if err != nil {
-				dialog.ShowError(err, c.window)
-				return
+		path, err := dialog.Directory().Title(lang.L("data_folder")).Browse()
+		if err != nil {
+			if err != dialog.ErrCancelled {
+				fyneDialog.ShowError(err, c.window)
 			}
-			if uri == nil {
-				return
-			}
-			entry.SetText(uri.Path())
-		}, c.window).Show()
+			return
+		}
+		if path != "" {
+			entry.SetText(path)
+		}
 	})
 
 	folderContainer := container.NewBorder(nil, nil, nil, browseBtn, entry)
@@ -71,7 +72,7 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 	saveBtn := widget.NewButton(lang.L("save_configuration"), func() {
 		newDataFolder := entry.Text
 		if newDataFolder == "" {
-			dialog.ShowError(filepath.ErrBadPattern, c.window)
+			fyneDialog.ShowError(filepath.ErrBadPattern, c.window)
 			return
 		}
 
@@ -95,20 +96,20 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 			viper.Set("extra_rate", newExtraRate)
 			err := viper.WriteConfigAs(c.userConfigFilePath)
 			if err != nil {
-				dialog.ShowError(err, c.window)
+				fyneDialog.ShowError(err, c.window)
 				return
 			}
-			dialog.ShowInformation(lang.L("success"), lang.L("config_saved"), c.window)
+			fyneDialog.ShowInformation(lang.L("success"), lang.L("config_saved"), c.window)
 		}
 
 		if newDataFolder != oldDataFolder {
 			// Ask user
-			var d dialog.Dialog
+			var d fyneDialog.Dialog
 
 			moveBtn := widget.NewButton(lang.L("move_existing_data"), func() {
 				d.Hide()
 				if err := c.storage.MoveData(newDataFolder); err != nil {
-					dialog.ShowError(err, c.window)
+					fyneDialog.ShowError(err, c.window)
 					return
 				}
 				saveConfig()
@@ -125,7 +126,7 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 				container.NewHBox(moveBtn, freshBtn),
 			)
 
-			d = dialog.NewCustom(lang.L("data_folder_changed_title"), lang.L("cancel"), content, c.window)
+			d = fyneDialog.NewCustom(lang.L("data_folder_changed_title"), lang.L("cancel"), content, c.window)
 			d.Show()
 			return
 		}
@@ -135,12 +136,12 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 	})
 
 	eraseBtn := widget.NewButtonWithIcon(lang.L("erase_all_history"), theme.DeleteIcon(), func() {
-		dialog.ShowConfirm(lang.L("erase_all_history"), lang.L("erase_history_confirm"), func(confirmed bool) {
+		fyneDialog.ShowConfirm(lang.L("erase_all_history"), lang.L("erase_history_confirm"), func(confirmed bool) {
 			if confirmed {
 				if err := c.storage.DeleteAllEntries(); err != nil {
-					dialog.ShowError(err, c.window)
+					fyneDialog.ShowError(err, c.window)
 				} else {
-					dialog.ShowInformation(lang.L("success"), lang.L("history_erased"), c.window)
+					fyneDialog.ShowInformation(lang.L("success"), lang.L("history_erased"), c.window)
 				}
 			}
 		}, c.window)

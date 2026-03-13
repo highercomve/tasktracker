@@ -73,12 +73,13 @@ debian-deps:
 	@echo "Installing Debian/Ubuntu dependencies for Fyne build..."
 	sudo apt-get update && sudo apt-get install -y \
 	build-essential libgl1-mesa-dev xorg-dev libxcursor-dev libxrandr-dev \
-	libxi-dev libxkbcommon-dev gcc linux-libc-dev libxxf86vm-dev
+	libxi-dev libxkbcommon-dev gcc linux-libc-dev libxxf86vm-dev \
+	libgtk-3-dev
 
 
 arch-deps:
 	@echo "Installing Arch Linux dependencies for Fyne build..."
-	sudo pacman -Syu --needed base-devel mesa libxkbcommon \
+	sudo pacman -Syu --needed base-devel mesa libxkbcommon gtk3 \
 	aarch64-linux-gnu-gcc aarch64-linux-gnu-libx11 aarch64-linux-gnu-libxcursor aarch64-linux-gnu-libxrandr aarch64-linux-gnu-libxinerama aarch64-linux-gnu-libxi aarch64-linux-gnu-libxkbcommon \
 	arm-linux-gnueabihf-gcc arm-linux-gnueabihf-libx11 arm-linux-gnueabihf-libxcursor arm-linux-gnueabihf-libxrandr arm-linux-gnueabihf-libxinerama arm-linux-gnueabihf-libxi arm-linux-gnueabihf-libxkbcommon
 

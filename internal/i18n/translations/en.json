@@ -67,6 +67,7 @@
     "duration": "Duration",
     "export_pdf": "Export PDF",
     "pdf_saved": "PDF Report saved successfully.",
+    "open_file_question": "Do you want to open the file?",
     "group_by": "Group By",
     "none": "None",
     "subtotal": "Subtotal",

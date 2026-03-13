@@ -7,12 +7,14 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/johnfercher/maroto v1.0.0
 	github.com/spf13/viper v1.21.0
+	github.com/sqweek/dialog v0.0.0-20260123140253-64c163d53aac
 	github.com/ulikunitz/xz v0.5.15
 )
 
 require (
 	fyne.io/systray v1.11.1-0.20250603113521-ca66a66d8b58 // indirect
 	github.com/BurntSushi/toml v1.5.0 // indirect
+	github.com/TheTitanrain/w32 v0.0.0-20180517000239-4f5cfb03fabf // indirect
 	github.com/boombuler/barcode v1.0.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fredbi/uri v1.1.1 // indirect
