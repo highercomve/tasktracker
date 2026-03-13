@@ -1,4 +1,20 @@
 
+<a name="v0.1.3"></a>
+## [v0.1.3](https://github.com/highercomve/tasktracker/compare/v0.1.2...v0.1.3) - 2026-03-13
+
+### Bug Fixes
+- resolve critical memory leaks, race conditions, and error handling issues
+
+### Feature
+- change format of the pdf report
+- use native file explorer
+- add hours rate calculation
+
+
+<a name="v0.1.2"></a>
+## [v0.1.2](https://github.com/highercomve/tasktracker/compare/0.1.2...v0.1.2) - 2026-01-21
+
+
 <a name="0.1.2"></a>
 ## [0.1.2](https://github.com/highercomve/tasktracker/compare/v0.1.1...0.1.2) - 2026-01-19
 
