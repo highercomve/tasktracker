@@ -1,4 +1,14 @@
 
+<a name="v0.1.4"></a>
+## [v0.1.4](https://github.com/highercomve/tasktracker/compare/v0.1.3...v0.1.4) - 2026-06-05
+
+### Bug Fixes
+- resolve report freeze, slow range loading, and filter persistence bugs
+
+### Feature
+- build crossplatform with libgtk3
+
+
 <a name="v0.1.3"></a>
 ## [v0.1.3](https://github.com/highercomve/tasktracker/compare/v0.1.2...v0.1.3) - 2026-03-13
 
