@@ -16,47 +16,57 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    # Linux: native gcc on matching-arch runners (zig conflicts
-                    # with the host glibc headers for CGO+GTK builds).
+                    # Linux: native gcc on matching-arch runners. Bare-binary
+                    # .tar.xz — the exact name/format the in-app auto-updater
+                    # expects (internal/updater/updater.go). DO NOT change these.
                     - target: linux-amd64
                       runs-on: ubuntu-latest
                       make: build-native
                       dist: dist/linux-amd64/tasktracker
-                      asset: tasktracker-linux-amd64.tar.gz
+                      asset: tasktracker-linux-amd64.tar.xz
+                      pack: tarxz
                       gtk: true
                     - target: linux-arm64
                       runs-on: ubuntu-24.04-arm
                       make: build-native
                       dist: dist/linux-arm64/tasktracker
-                      asset: tasktracker-linux-arm64.tar.gz
+                      asset: tasktracker-linux-arm64.tar.xz
+                      pack: tarxz
                       gtk: true
 
-                    # Windows: cross-compile from Linux with zig (no host-header
-                    # conflict; no native Windows toolchain needed).
+                    # Windows: cross-compile from Linux with zig. Bare-exe .zip,
+                    # also consumed by the auto-updater. Keep names/format.
                     - target: windows-amd64
                       runs-on: ubuntu-latest
                       make: build-windows-amd64
                       dist: dist/windows-amd64/tasktracker.exe
                       asset: tasktracker-windows-amd64.zip
+                      pack: zip
                       zig: true
                     - target: windows-arm64
                       runs-on: ubuntu-latest
                       make: build-windows-arm64
                       dist: dist/windows-arm64/tasktracker.exe
                       asset: tasktracker-windows-arm64.zip
+                      pack: zip
                       zig: true
 
-                    # macOS: native clang on Intel and Apple Silicon runners.
+                    # macOS: native build wrapped into a proper .app bundle via
+                    # `fyne package`. Not auto-updated, so the format is free.
                     - target: darwin-amd64
                       runs-on: macos-13
                       make: build-native
                       dist: dist/darwin-amd64/tasktracker
-                      asset: tasktracker-darwin-amd64.tar.gz
+                      asset: tasktracker-darwin-amd64.zip
+                      pack: app
+                      fyne: true
                     - target: darwin-arm64
                       runs-on: macos-14
                       make: build-native
                       dist: dist/darwin-arm64/tasktracker
-                      asset: tasktracker-darwin-arm64.tar.gz
+                      asset: tasktracker-darwin-arm64.zip
+                      pack: app
+                      fyne: true
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
@@ -80,18 +90,37 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev libgtk-3-dev
 
-            - name: Build
+            - name: Install fyne tool
+              if: matrix.fyne
+              run: go install fyne.io/tools/cmd/fyne@latest
+
+            - name: Build binary
               run: make ${{ matrix.make }}
 
             - name: Package
               shell: bash
               run: |
                   set -e
-                  if [[ "${{ matrix.asset }}" == *.zip ]]; then
-                      zip -j "${{ matrix.asset }}" "${{ matrix.dist }}"
-                  else
-                      tar -czf "${{ matrix.asset }}" -C "$(dirname "${{ matrix.dist }}")" "$(basename "${{ matrix.dist }}")"
-                  fi
+                  export PATH="$(go env GOPATH)/bin:$PATH"
+                  case "${{ matrix.pack }}" in
+                      tarxz)
+                          # Bare binary at archive root (auto-updater matches on basename).
+                          tar -cJf "${{ matrix.asset }}" -C "$(dirname "${{ matrix.dist }}")" "$(basename "${{ matrix.dist }}")"
+                          ;;
+                      zip)
+                          zip -j "${{ matrix.asset }}" "${{ matrix.dist }}"
+                          ;;
+                      app)
+                          # Wrap the version-stamped binary into a .app (fyne has no
+                          # --ldflags, so we package the already-built executable).
+                          fyne package --os darwin --executable "${{ matrix.dist }}" \
+                              --name tasktracker --icon Icon.png \
+                              --app-id com.highercomve.tasktracker \
+                              --app-version "${GITHUB_REF_NAME#v}" \
+                              --app-build "${{ github.run_number }}"
+                          ditto -c -k --keepParent tasktracker.app "${{ matrix.asset }}"
+                          ;;
+                  esac
 
             - name: Upload artifact
               uses: actions/upload-artifact@v4
