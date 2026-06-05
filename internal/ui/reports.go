@@ -378,8 +378,12 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	updateCategorySelector := func(selector *widget.Select, entries []models.TimeEntry, onChange func(string)) {
 		options := buildCategoryOptions(entries)
 		selector.Options = options
-		selector.OnChanged = onChange
+		// Reset to the default without firing onChange. Fyne's SetSelected always
+		// invokes OnChanged, which would clobber (and persist) the caller's
+		// saved/selected category before it has a chance to be restored.
+		selector.OnChanged = nil
 		selector.SetSelected(lang.L("all_categories"))
+		selector.OnChanged = onChange
 		selector.Refresh()
 	}
 
@@ -450,7 +454,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		if dailySelectedCategory != lang.L("all_categories") {
 			dailyCategorySelector.SetSelected(dailySelectedCategory)
 		}
-		if dailySelectedProject != lang.L("all_projects") {
+		if dailySelectedProject != lang.L("all_projects") && dailyProjectSelector.Selected != dailySelectedProject {
 			dailyProjectSelector.SetSelected(dailySelectedProject)
 		}
 		refreshReport(dailyContent, selectedDay, selectedDay, service.GroupByNone, dailySelectedCategory, dailySelectedProject, dailySearchEntry.Text, updateDaily)
@@ -637,7 +641,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		if weeklySelectedCategory != lang.L("all_categories") {
 			weeklyCategorySelector.SetSelected(weeklySelectedCategory)
 		}
-		if weeklySelectedProject != lang.L("all_projects") {
+		if weeklySelectedProject != lang.L("all_projects") && weeklyProjectSelector.Selected != weeklySelectedProject {
 			weeklyProjectSelector.SetSelected(weeklySelectedProject)
 		}
 		refreshReport(weeklyContent, selectedWeekStart, end, weeklyGroupBy, weeklySelectedCategory, weeklySelectedProject, weeklySearchEntry.Text, updateWeekly)
@@ -847,7 +851,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		if monthlySelectedCategory != lang.L("all_categories") {
 			monthlyCategorySelector.SetSelected(monthlySelectedCategory)
 		}
-		if monthlySelectedProject != lang.L("all_projects") {
+		if monthlySelectedProject != lang.L("all_projects") && monthlyProjectSelector.Selected != monthlySelectedProject {
 			monthlyProjectSelector.SetSelected(monthlySelectedProject)
 		}
 		refreshReport(monthlyContent, selectedMonth, end, monthlyGroupBy, monthlySelectedCategory, monthlySelectedProject, monthlySearchEntry.Text, updateMonthly)
@@ -1056,7 +1060,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		if customSelectedCategory != lang.L("all_categories") {
 			customCategorySelector.SetSelected(customSelectedCategory)
 		}
-		if customSelectedProject != lang.L("all_projects") {
+		if customSelectedProject != lang.L("all_projects") && customProjectSelector.Selected != customSelectedProject {
 			customProjectSelector.SetSelected(customSelectedProject)
 		}
 		refreshReport(customContent, startDate, endDate, customGroupBy, customSelectedCategory, customSelectedProject, customSearchEntry.Text, updateCustom)
@@ -1736,6 +1740,7 @@ func (r *Reports) showEditDialog(entry models.TimeEntry, onSuccess func()) {
 		if endEntry.Text != "" {
 			entry.EndTime = newEnd
 			entry.Duration = int64(newEnd.Sub(newStart).Seconds())
+			entry.State = models.TaskStateStopped
 		}
 
 		// If start date changed, we need to delete old and save new

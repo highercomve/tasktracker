@@ -245,7 +245,8 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 
 	d.startBtn.OnTapped = func() {
 		d.RegisterActivity()
-		if d.activeState == models.TaskStateRunning || d.activeState == models.TaskStatePaused {
+		state := d.GetActiveState()
+		if state == models.TaskStateRunning || state == models.TaskStatePaused {
 			// Stop
 			d.StopTask()
 			d.taskEntry.SetText("")
@@ -268,9 +269,10 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 
 	d.pauseBtn.OnTapped = func() {
 		d.RegisterActivity()
-		if d.activeState == models.TaskStateRunning {
+		state := d.GetActiveState()
+		if state == models.TaskStateRunning {
 			d.PauseTask()
-		} else if d.activeState == models.TaskStatePaused {
+		} else if state == models.TaskStatePaused {
 			d.ResumeTask()
 		}
 		d.refreshList()

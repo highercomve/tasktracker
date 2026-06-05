@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -185,23 +187,62 @@ func (s *Storage) StopActiveTask(endTime time.Time) error {
 }
 
 // LoadEntriesForRange loads entries for a date range (inclusive).
+//
+// Rather than iterating every calendar day in the range (which is O(days) and
+// becomes pathological for wide ranges such as "all time"), it lists the
+// entries directory once and only reads the files that actually fall inside the
+// range. Filenames use the YYYY-MM-DD format, which sorts lexicographically in
+// chronological order, so string comparison is sufficient and timezone-safe.
 func (s *Storage) LoadEntriesForRange(start, end time.Time) ([]models.TimeEntry, error) {
-	var allEntries []models.TimeEntry
+	startStr := start.Format("2006-01-02")
+	endStr := end.Format("2006-01-02")
+	if endStr < startStr {
+		startStr, endStr = endStr, startStr
+	}
 
-	// Normalize start and end to beginning/end of day if needed,
-	// but here we assume caller handles it or we just iterate days.
-	// Let's iterate day by day.
-	current := start
-	for !current.After(end) {
-		entries, err := s.LoadEntries(current)
+	entriesDir := filepath.Join(s.BaseDir, "entries")
+	files, err := os.ReadDir(entriesDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []models.TimeEntry{}, nil
+		}
+		return nil, err
+	}
+
+	// Collect the date strings of files that fall within the range.
+	var dates []string
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		name := f.Name()
+		if !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		dateStr := strings.TrimSuffix(name, ".json")
+		// Skip anything that isn't a valid YYYY-MM-DD entry file.
+		if _, perr := time.Parse("2006-01-02", dateStr); perr != nil {
+			continue
+		}
+		if dateStr >= startStr && dateStr <= endStr {
+			dates = append(dates, dateStr)
+		}
+	}
+
+	// Preserve chronological order.
+	sort.Strings(dates)
+
+	var allEntries []models.TimeEntry
+	for _, dateStr := range dates {
+		day, _ := time.Parse("2006-01-02", dateStr)
+		entries, err := s.LoadEntries(day)
 		if err != nil {
 			// Log warning but continue - allow partial results
-			fmt.Printf("warning: failed to load entries for %s: %v\n", 
-				current.Format("2006-01-02"), err)
-		} else {
-			allEntries = append(allEntries, entries...)
+			fmt.Printf("warning: failed to load entries for %s: %v\n",
+				dateStr, err)
+			continue
 		}
-		current = current.AddDate(0, 0, 1)
+		allEntries = append(allEntries, entries...)
 	}
 	return allEntries, nil
 }
