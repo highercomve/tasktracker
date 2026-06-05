@@ -8,11 +8,6 @@ on:
 permissions:
     contents: write
 
-# Run JS-based actions on Node 24 to silence the Node 20 deprecation warning
-# (forced default from 2026-06-16).
-env:
-    FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
     build:
         name: Build ${{ matrix.target }}
@@ -88,20 +83,25 @@ jobs:
                       fyne: true
         steps:
             - name: Checkout code
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
               with:
                   fetch-depth: 0 # full history + tags so `git describe` resolves VERSION
 
             - name: Set up Go
-              uses: actions/setup-go@v5
+              uses: actions/setup-go@v6
               with:
                   go-version: "1.24"
 
+            # Plain download instead of a setup-zig action: the only maintained
+            # ones still run on Node 20. Windows jobs run on x86_64 Linux runners.
             - name: Set up Zig
               if: matrix.zig
-              uses: goto-bus-stop/setup-zig@v2
-              with:
-                  version: 0.15.2
+              run: |
+                  ZIG_VER=0.15.2
+                  curl -fsSL "https://ziglang.org/download/${ZIG_VER}/zig-x86_64-linux-${ZIG_VER}.tar.xz" -o /tmp/zig.tar.xz
+                  mkdir -p /tmp/zig
+                  tar -xf /tmp/zig.tar.xz -C /tmp/zig --strip-components=1
+                  echo "/tmp/zig" >> "$GITHUB_PATH"
 
             - name: Install Linux dependencies
               if: matrix.gtk
@@ -142,7 +142,7 @@ jobs:
                   esac
 
             - name: Upload artifact
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: ${{ matrix.asset }}
                   path: ${{ matrix.asset }}
@@ -155,12 +155,12 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Download all artifacts
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v8
               with:
                   path: artifacts
                   merge-multiple: true
 
             - name: Create Release
-              uses: softprops/action-gh-release@v2
+              uses: softprops/action-gh-release@v3
               with:
                   files: artifacts/*
