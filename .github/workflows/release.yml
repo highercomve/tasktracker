@@ -9,11 +9,28 @@ permissions:
     contents: write
 
 jobs:
-    build-and-release:
+    build:
+        name: Build ${{ matrix.target }}
         runs-on: ubuntu-latest
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - target: linux-amd64
+                      make: build-linux-amd64
+                      asset: tasktracker-linux-amd64.tar.xz
+                      package: cd dist/linux-amd64 && tar -cJf ../../tasktracker-linux-amd64.tar.xz tasktracker
+                      needs_gtk: true
+                    - target: windows-amd64
+                      make: build-windows-amd64
+                      asset: tasktracker-windows-amd64.zip
+                      package: cd dist/windows-amd64 && zip ../../tasktracker-windows-amd64.zip tasktracker.exe
+                      needs_gtk: false
         steps:
             - name: Checkout code
               uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # full history + tags so `git describe` resolves VERSION
 
             - name: Set up Go
               uses: actions/setup-go@v5
@@ -26,22 +43,36 @@ jobs:
                   version: 0.15.2
 
             - name: Install Linux dependencies
+              if: matrix.needs_gtk
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev libgtk3-dev
-            - name: Build Releases
-              run: |
-                  make build-linux-amd64
-                  make build-windows-amd64
+                  sudo apt-get install -y libgl1-mesa-dev xorg-dev libxkbcommon-dev libgtk-3-dev
 
-            - name: Package Releases
-              run: |
-                  cd dist/linux-amd64 && tar -cJf ../../tasktracker-linux-amd64.tar.xz tasktracker && cd ../..
-                  cd dist/windows-amd64 && zip ../../tasktracker-windows-amd64.zip tasktracker.exe && cd ../..
+            - name: Build
+              run: make ${{ matrix.make }}
+
+            - name: Package
+              run: ${{ matrix.package }}
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: ${{ matrix.asset }}
+                  path: ${{ matrix.asset }}
+                  if-no-files-found: error
+
+    release:
+        name: Create Release
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - name: Download all artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  path: artifacts
+                  merge-multiple: true
 
             - name: Create Release
               uses: softprops/action-gh-release@v2
               with:
-                  files: |
-                      tasktracker-linux-amd64.tar.xz
-                      tasktracker-windows-amd64.zip
+                  files: artifacts/*
