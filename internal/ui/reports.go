@@ -3,7 +3,8 @@ package ui
 import (
 	"context"
 	"fmt"
-	"net/url"
+	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,20 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
+
+// openFile opens a file with the OS default application. It avoids building a
+// file:// URL (Windows paths like C:\... produce an invalid URL, which would
+// crash OpenURL). On Windows rundll32 is used so no console window is spawned.
+func openFile(path string) error {
+	switch runtime.GOOS {
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path).Start()
+	case "darwin":
+		return exec.Command("open", path).Start()
+	default:
+		return exec.Command("xdg-open", path).Start()
+	}
+}
 
 type Reports struct {
 	storage      *store.Storage
@@ -337,8 +352,9 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 			} else {
 				fyneDialog.ShowConfirm(lang.L("success"), lang.L("pdf_saved")+"\n"+lang.L("open_file_question"), func(open bool) {
 					if open {
-						u, _ := url.Parse("file://" + path)
-						fyne.CurrentApp().OpenURL(u)
+						if err := openFile(path); err != nil {
+							fyneDialog.ShowError(err, safeGetMainWindow())
+						}
 					}
 				}, safeGetMainWindow())
 			}
