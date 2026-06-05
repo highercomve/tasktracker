@@ -1,6 +1,9 @@
 BINARY_NAME=tasktracker
 ENTRY_POINT=./cmd/tasktracker
 VERSION=$(shell git describe --tags --always --dirty="-dev" --abbrev=7)
+# Numeric x.y.z version for Windows resource metadata (strip leading v and any -suffix)
+WINVERSION=$(shell echo "$(VERSION)" | sed 's/^v//; s/-.*//')
+WINRES_VERSION=v0.3.3
 LINUX_AMD64_LIBS = /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu
 LINUX_ARM64_LIBS = /usr/lib /usr/lib64 /usr/lib/aarch64-linux-gnu
 LINUX_ARM_LIBS = /usr/lib /usr/lib64 /usr/lib/arm-linux-gnueabihf
@@ -41,6 +44,7 @@ run:
 clean:
 	go clean
 	rm -f tasktracker*
+	rm -f cmd/tasktracker/*.syso
 	rm -rf dist
 	rm -rf fyne-cross
 
@@ -67,6 +71,14 @@ build-native: deps
 build-%: deps
 	$(eval GOOS := $(word 1,$(subst -, ,$*)))
 	$(eval GOARCH := $(word 2,$(subst -, ,$*)))
+	@if [ "$(GOOS)" = "windows" ]; then \
+		echo "Embedding Windows resources (icon + version) via go-winres"; \
+		go run github.com/tc-hib/go-winres@$(WINRES_VERSION) simply \
+			--arch $(GOARCH) --icon Icon.png --manifest gui \
+			--product-name $(BINARY_NAME) \
+			--product-version "$(WINVERSION)" --file-version "$(WINVERSION)" \
+			--out cmd/tasktracker/rsrc; \
+	fi
 	@echo "Building for $(GOOS) ($(GOARCH))"
 	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 \
 	CC="zig cc -target $(ZIG_TARGET_$*) $(ZIG_CC_FLAGS_$*)" \

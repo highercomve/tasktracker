@@ -53,13 +53,7 @@ jobs:
 
                     # macOS: native build wrapped into a proper .app bundle via
                     # `fyne package`. Not auto-updated, so the format is free.
-                    - target: darwin-amd64
-                      runs-on: macos-13
-                      make: build-native
-                      dist: dist/darwin-amd64/tasktracker
-                      asset: tasktracker-darwin-amd64.zip
-                      pack: app
-                      fyne: true
+                    # arm64 (Apple Silicon) only for now.
                     - target: darwin-arm64
                       runs-on: macos-14
                       make: build-native
