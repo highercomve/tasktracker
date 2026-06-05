@@ -34,6 +34,26 @@ jobs:
                       pack: tarxz
                       gtk: true
 
+                    # Flatpak/sandbox builds: same native binary but with the
+                    # `flatpak` tag so Fyne uses XDG Desktop Portals. Separate
+                    # asset name (-flatpak) so the auto-updater never picks it.
+                    - target: linux-amd64-flatpak
+                      runs-on: ubuntu-latest
+                      make: build-native
+                      tags: flatpak
+                      dist: dist/linux-amd64/tasktracker
+                      asset: tasktracker-linux-amd64-flatpak.tar.xz
+                      pack: tarxz
+                      gtk: true
+                    - target: linux-arm64-flatpak
+                      runs-on: ubuntu-24.04-arm
+                      make: build-native
+                      tags: flatpak
+                      dist: dist/linux-arm64/tasktracker
+                      asset: tasktracker-linux-arm64-flatpak.tar.xz
+                      pack: tarxz
+                      gtk: true
+
                     # Windows: cross-compile from Linux with zig. Bare-exe .zip,
                     # also consumed by the auto-updater. Keep names/format.
                     - target: windows-amd64
@@ -89,7 +109,7 @@ jobs:
               run: go install fyne.io/tools/cmd/fyne@latest
 
             - name: Build binary
-              run: make ${{ matrix.make }}
+              run: make ${{ matrix.make }} TAGS=${{ matrix.tags }}
 
             - name: Package
               shell: bash

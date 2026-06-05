@@ -58,11 +58,14 @@ deps:
 # Use this on a runner whose OS/arch matches the desired target (e.g. Linux on
 # a Linux runner, macOS on a macOS runner). This avoids the zig/host-glibc
 # header conflicts that affect cross-compiling CGO+GTK Linux binaries.
+# Optional build tags, e.g. `make build-native TAGS=flatpak` for an XDG-portal
+# (Flatpak sandbox) build of the Linux app.
+TAGS ?=
 build-native: deps
 	$(eval GOOS := $(shell go env GOOS))
 	$(eval GOARCH := $(shell go env GOARCH))
-	@echo "Building natively for $(GOOS)/$(GOARCH)"
-	CGO_ENABLED=1 go build \
+	@echo "Building natively for $(GOOS)/$(GOARCH)$(if $(TAGS), with tags '$(TAGS)',)"
+	CGO_ENABLED=1 go build $(if $(TAGS),-tags "$(TAGS)",) \
 		-ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" \
 		-o dist/$(GOOS)-$(GOARCH)/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) $(ENTRY_POINT)
 
@@ -81,8 +84,8 @@ build-%: deps
 	fi
 	@echo "Building for $(GOOS) ($(GOARCH))"
 	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 \
-	CC="zig cc -target $(ZIG_TARGET_$*) $(ZIG_CC_FLAGS_$*)" \
-	CXX="zig c++ -target $(ZIG_TARGET_$*) $(ZIG_CC_FLAGS_$*)" \
+	CC="zig cc -target $(ZIG_TARGET_$*) $(ZIG_CC_FLAGS_$(GOOS)) $(ZIG_CC_FLAGS_$*)" \
+	CXX="zig c++ -target $(ZIG_TARGET_$*) $(ZIG_CC_FLAGS_$(GOOS)) $(ZIG_CC_FLAGS_$*)" \
 	go build -ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)' $(LDFLAGS_$(GOOS))" -o dist/$*/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) $(ENTRY_POINT)
 
 # Alias for backward compatibility
