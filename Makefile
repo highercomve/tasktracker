@@ -28,7 +28,7 @@ ZIG_TARGET_linux-arm = arm-linux-gnueabihf
 ZIG_TARGET_windows-amd64 = x86_64-windows-gnu
 ZIG_TARGET_windows-arm64 = aarch64-windows-gnu
 
-.PHONY: all build run clean test deps build-linux build-windows debian-deps arch-deps release
+.PHONY: all build build-native run clean test deps build-linux build-windows debian-deps arch-deps release
 
 all: build-linux-amd64 build-windows-amd64
 
@@ -49,6 +49,18 @@ test:
 
 deps:
 	go mod tidy
+
+# Native build for the host platform using the system C compiler.
+# Use this on a runner whose OS/arch matches the desired target (e.g. Linux on
+# a Linux runner, macOS on a macOS runner). This avoids the zig/host-glibc
+# header conflicts that affect cross-compiling CGO+GTK Linux binaries.
+build-native: deps
+	$(eval GOOS := $(shell go env GOOS))
+	$(eval GOARCH := $(shell go env GOARCH))
+	@echo "Building natively for $(GOOS)/$(GOARCH)"
+	CGO_ENABLED=1 go build \
+		-ldflags="-X 'github.com/highercomve/tasktracker/internal/version.Version=$(VERSION)'" \
+		-o dist/$(GOOS)-$(GOARCH)/$(BINARY_NAME)$(EXE_EXT_$(GOOS)) $(ENTRY_POINT)
 
 # Generic build rule for cross-compilation
 # Usage: make build-OS-ARCH (e.g., make build-linux-amd64)
