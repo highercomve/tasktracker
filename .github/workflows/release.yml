@@ -194,9 +194,14 @@ jobs:
                   # the bundle.
                   rm -f artifacts/*.sig
 
-            - name: Warn about unsigned release
+            # Every release embeds the updater's public key; publishing one that
+            # isn't backed by the secret would leave its installs unable to
+            # update. Create the key with `make updater-key` (see README).
+            - name: Require the updater signing key
               if: env.HAS_UPDATER_KEY != 'true'
-              run: echo "::warning::UPDATER_PRIVATE_KEY is not set; no latest.json, so installed apps won't be offered this release."
+              run: |
+                  echo "::error::UPDATER_PRIVATE_KEY is not set. Run 'make updater-key', commit internal/update/pubkey.go and add the key as the UPDATER_PRIVATE_KEY secret."
+                  exit 1
 
             - name: Create Release
               uses: softprops/action-gh-release@v3

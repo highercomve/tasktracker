@@ -53,8 +53,10 @@ func TestBuiltInPublicKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fmt.Sprintf("%X", pub.ID()); got != "1F96A2977EF37E6B" {
-		t.Errorf("key ID = %s", got)
+	// The key ID in the comment must be the key's (tools/updater keeps both
+	// in sync when it generates a key).
+	if id := fmt.Sprintf("%X", pub.ID()); !strings.Contains(pubkeyComment(t), "key ID "+id) {
+		t.Errorf("pubkey.go comment doesn't name key ID %s", id)
 	}
 }
 
@@ -188,4 +190,13 @@ func TestDetectInstallFlatpak(t *testing.T) {
 	if i := DetectInstall(); i.CanSelfUpdate || i.Kind != KindManaged {
 		t.Errorf("Flatpak install = %+v, want a managed install", i)
 	}
+}
+
+func pubkeyComment(t *testing.T) string {
+	t.Helper()
+	src, err := os.ReadFile("pubkey.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(src)
 }

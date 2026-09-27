@@ -8,12 +8,13 @@
 // Files that are not update bundles are ignored, so passing every release
 // asset is fine. Each bundle also gets a <name>.sig file next to it.
 //
-// To create a new signing key pair (e.g. for a key rotation):
+// To create a new signing key pair (or `make updater-key`):
 //
-//	go run ./tools/updater --generate-key DIR
+//	go run ./tools/updater --generate-key DIR --pubkey-file internal/update/pubkey.go
 //
 // writes DIR/updater.key (the UPDATER_PRIVATE_KEY secret, base64-encoded) and
-// prints the public key to put in internal/update/pubkey.go.
+// puts the public key in internal/update/pubkey.go (without --pubkey-file it
+// is printed instead).
 package main
 
 import (
@@ -62,9 +63,10 @@ func main() {
 	changelog := flag.String("changelog", "", "CHANGELOG.md to take the release notes from")
 	out := flag.String("out", "latest.json", "manifest to write")
 	genKey := flag.String("generate-key", "", "write a new key pair's private key to this directory and print the public key")
+	pubkeyFile := flag.String("pubkey-file", "", "with --generate-key: also put the public key in this Go file (internal/update/pubkey.go)")
 	flag.Parse()
 	if *genKey != "" {
-		generateKey(*genKey)
+		generateKey(*genKey, *pubkeyFile)
 		return
 	}
 	if *version == "" || *baseURL == "" {
@@ -190,8 +192,9 @@ func releaseNotes(path, version string) string {
 }
 
 // generateKey creates a key pair. The private key is written, base64-encoded
-// like Tauri's, to dir/updater.key and never printed.
-func generateKey(dir string) {
+// like Tauri's, to dir/updater.key and never printed. An existing key file is
+// never overwritten. With pubkeyFile, the public key is written into it.
+func generateKey(dir, pubkeyFile string) {
 	pub, priv, err := minisign.GenerateKey(rand.Reader)
 	if err != nil {
 		fail(err.Error())
@@ -202,14 +205,42 @@ func generateKey(dir string) {
 		fail(err.Error())
 	}
 	privFile := string(privText) + "\n"
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		fail(err.Error())
+	}
 	path := filepath.Join(dir, "updater.key")
-	if err := os.WriteFile(path, []byte(base64.StdEncoding.EncodeToString([]byte(privFile))), 0o600); err != nil {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		fail(fmt.Sprintf("%v (move the existing key away first; releases signed with it need it)", err))
+	}
+	if _, err := f.WriteString(base64.StdEncoding.EncodeToString([]byte(privFile))); err != nil {
+		fail(err.Error())
+	}
+	if err := f.Close(); err != nil {
 		fail(err.Error())
 	}
 	pubText, _ := pub.MarshalText()
-	pubFile := string(pubText) + "\n"
-	fmt.Printf("key ID %s\nprivate key (UPDATER_PRIVATE_KEY secret): %s\npublic key for internal/update/pubkey.go:\n%s\n",
-		id, path, base64.StdEncoding.EncodeToString([]byte(pubFile)))
+	pubB64 := base64.StdEncoding.EncodeToString([]byte(string(pubText) + "\n"))
+	fmt.Printf("key ID %s\nprivate key (UPDATER_PRIVATE_KEY secret): %s\n", id, path)
+
+	if pubkeyFile == "" {
+		fmt.Printf("public key for internal/update/pubkey.go:\n%s\n", pubB64)
+		return
+	}
+	src, err := os.ReadFile(pubkeyFile)
+	if err != nil {
+		fail(err.Error())
+	}
+	constRe := regexp.MustCompile(`const publicKeyBase64 = "[^"]*"`)
+	if !constRe.Match(src) {
+		fail(pubkeyFile + " has no publicKeyBase64 constant")
+	}
+	src = constRe.ReplaceAll(src, []byte(`const publicKeyBase64 = "`+pubB64+`"`))
+	src = regexp.MustCompile(`\(key ID [0-9A-F]+\)`).ReplaceAll(src, []byte("(key ID "+id+")"))
+	if err := os.WriteFile(pubkeyFile, src, 0o644); err != nil {
+		fail(err.Error())
+	}
+	fmt.Printf("public key written to %s\n", pubkeyFile)
 }
 
 func fail(msg string) {
