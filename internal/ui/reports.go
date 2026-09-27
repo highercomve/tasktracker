@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"context"
 	"fmt"
 	"image/color"
 	"os/exec"
@@ -605,18 +604,16 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		dailyContent,
 	)
 
-	// Listen for window resize to rebuild toolbar
-	go func() {
-		// Initial build after a short delay to ensure window is ready
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel()
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(100 * time.Millisecond):
-			rebuildDailyToolbar()
-		}
-	}()
+	// Build the toolbar now when the window exists (it sizes the layout);
+	// otherwise shortly after, once the window is ready.
+	if safeGetMainWindow() != nil {
+		rebuildDailyToolbar()
+	} else {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			fyne.Do(rebuildDailyToolbar)
+		}()
+	}
 
 	// Weekly Tab
 	getWeekStart := func(t time.Time) time.Time {
@@ -812,17 +809,16 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		weeklyContent,
 	)
 
-	// Listen for window resize to rebuild toolbar
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel()
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(100 * time.Millisecond):
-			rebuildWeeklyToolbar()
-		}
-	}()
+	// Build the toolbar now when the window exists (it sizes the layout);
+	// otherwise shortly after, once the window is ready.
+	if safeGetMainWindow() != nil {
+		rebuildWeeklyToolbar()
+	} else {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			fyne.Do(rebuildWeeklyToolbar)
+		}()
+	}
 
 	// Monthly Tab
 	getMonthStart := func(t time.Time) time.Time {
@@ -1014,17 +1010,16 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		monthlyContent,
 	)
 
-	// Listen for window resize to rebuild toolbar
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel()
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(100 * time.Millisecond):
-			rebuildMonthlyToolbar()
-		}
-	}()
+	// Build the toolbar now when the window exists (it sizes the layout);
+	// otherwise shortly after, once the window is ready.
+	if safeGetMainWindow() != nil {
+		rebuildMonthlyToolbar()
+	} else {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			fyne.Do(rebuildMonthlyToolbar)
+		}()
+	}
 
 	// Custom Range Tab
 	startDate := time.Now().AddDate(0, 0, -7)
@@ -1264,17 +1259,16 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		customContent,
 	)
 
-	// Listen for window resize to rebuild toolbar
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-		defer cancel()
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(100 * time.Millisecond):
-			rebuildCustomToolbar()
-		}
-	}()
+	// Build the toolbar now when the window exists (it sizes the layout);
+	// otherwise shortly after, once the window is ready.
+	if safeGetMainWindow() != nil {
+		rebuildCustomToolbar()
+	} else {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			fyne.Do(rebuildCustomToolbar)
+		}()
+	}
 
 	tabs := container.NewAppTabs(
 		container.NewTabItem(lang.L("daily"), Inset(12, dailyTab)),

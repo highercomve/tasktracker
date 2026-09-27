@@ -425,12 +425,14 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 
 	// Ticker with lifecycle management
 	d.stopTicker = make(chan struct{})
+	// Keep a copy: StopTicker clears the field (under the lock) when closing it.
+	stop := d.stopTicker
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-d.stopTicker:
+			case <-stop:
 				return
 			case <-ticker.C:
 				fyne.Do(func() {
