@@ -40,8 +40,11 @@ After building, you can run the application from the project root:
 - Use the **Group By** dropdown to organize tasks (e.g., group weekly tasks by day).
 - Click the **Export PDF** button (floppy disk icon) to save the current report as a PDF file.
 
+### Appearance
+- Choose **Follow system**, **Light** or **Dark** under **Configuration → Appearance**. The choice applies immediately and is saved in the config file (`theme`).
+
 ## Screenshots
 
-![Screenshot 1](assets/1.jpg)
-![Screenshot 2](assets/2.jpg)
-![Screenshot 3](assets/3.jpg)
+![Tracker](assets/tracker.png)
+![Reports](assets/reports.png)
+![Projects](assets/projects.png)

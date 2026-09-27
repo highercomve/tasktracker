@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"image/color"
 	"os/exec"
 	"runtime"
 	"sort"
@@ -17,6 +18,7 @@ import (
 	"github.com/sqweek/dialog"
 
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	fyneDialog "fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/lang"
@@ -43,6 +45,11 @@ type Reports struct {
 	storage      *store.Storage
 	filterStates map[string]*FilterStateManager
 	projects     []models.Project
+
+	// refreshCurrent reloads the report tab that is shown
+	refreshCurrent func()
+	// projectSelectors are the project filters of every report tab
+	projectSelectors []*widget.Select
 }
 
 func NewReports(s *store.Storage) *Reports {
@@ -50,6 +57,45 @@ func NewReports(s *store.Storage) *Reports {
 		storage:      s,
 		filterStates: make(map[string]*FilterStateManager),
 	}
+}
+
+// Refresh reloads the shown report and the project filter options, picking
+// up time tracked and projects edited since it was built.
+func (r *Reports) Refresh() {
+	if projects, err := r.storage.LoadProjects(); err == nil {
+		r.projects = projects
+	}
+	options := []string{lang.L("all_projects"), lang.L("no_project")}
+	for _, p := range r.projects {
+		options = append(options, p.Name)
+	}
+	for _, sel := range r.projectSelectors {
+		selected := sel.Selected
+		sel.Options = options
+		known := false
+		for _, o := range options {
+			if o == selected {
+				known = true
+				break
+			}
+		}
+		if !known && sel.OnChanged != nil {
+			// The selected project is gone; fall back to all projects.
+			sel.SetSelected(lang.L("all_projects"))
+		}
+		sel.Refresh()
+	}
+	if r.refreshCurrent != nil {
+		r.refreshCurrent()
+	}
+}
+
+// labeledControl puts a small caption above a filter control.
+func labeledControl(label string, control fyne.CanvasObject) fyne.CanvasObject {
+	c := captionLabel(strings.TrimSuffix(strings.TrimSpace(label), ":"))
+	box := container.NewVBox(c, control)
+	box.Layout = &tightVBox{gap: -4}
+	return box
 }
 
 // getFilterStateManager returns or creates a filter state manager for a tab
@@ -74,12 +120,23 @@ func (r *Reports) createResponsiveToolbar(
 	// Check screen size and build layout accordingly
 	isCompact := IsCompactScreen(canvas)
 
+	// Give the search entry and bare buttons a caption slot too, so every
+	// filter lines up with the labelled selectors.
+	filters := make([]fyne.CanvasObject, 0, len(filterControls))
+	for _, ctrl := range filterControls {
+		switch ctrl.(type) {
+		case *widget.Entry:
+			filters = append(filters, labeledControl(lang.L("search"), ctrl))
+		case *widget.Button:
+			filters = append(filters, labeledControl(" ", ctrl))
+		default:
+			filters = append(filters, ctrl)
+		}
+	}
+
 	if isCompact {
 		// Filter panel content (simple container, no header)
-		filterContent := container.NewVBox()
-		for _, ctrl := range filterControls {
-			filterContent.Add(ctrl)
-		}
+		filterContent := container.NewVBox(filters...)
 
 		// Start hidden/shown based on saved state
 		expanded := filterState.GetState().PanelExpanded
@@ -116,21 +173,19 @@ func (r *Reports) createResponsiveToolbar(
 		navRow.Add(filterBtn)
 
 		return container.NewVBox(
-			navRow,
-			filterContent,
+			NewSurface(container.NewVBox(navRow, filterContent)),
 			filterBadgeContainer,
 		)
 	}
 
-	// Full layout: All controls in horizontal layout
+	// Full layout: navigation on top, then every filter side by side
 	fullNavRow := container.NewHBox(navControls...)
-	fullNavRow.Add(layout.NewSpacer())
-	for _, ctrl := range filterControls {
-		fullNavRow.Add(ctrl)
-	}
 
 	return container.NewVBox(
-		fullNavRow,
+		NewSurface(container.NewVBox(
+			fullNavRow,
+			container.NewGridWithColumns(len(filters), filters...),
+		)),
 		filterBadgeContainer,
 	)
 }
@@ -235,29 +290,17 @@ func (r *Reports) updateFilterBadgesWithProject(
 
 	if searchQuery != "" {
 		hasFilters = true
-		searchBadge := widget.NewButton(fmt.Sprintf("Search: %s", searchQuery), nil)
-		searchBadge.Importance = widget.MediumImportance
-		clearSearchBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), onClearSearch)
-		clearSearchBtn.Importance = widget.LowImportance
-		badgeContainer.Add(container.NewHBox(searchBadge, clearSearchBtn))
+		badgeContainer.Add(filterChip(fmt.Sprintf(lang.L("search_filter"), searchQuery), onClearSearch))
 	}
 
 	if selectedCategory != "" && selectedCategory != defaultCategory {
 		hasFilters = true
-		catBadge := widget.NewButton(fmt.Sprintf("%s: %s", lang.L("category"), selectedCategory), nil)
-		catBadge.Importance = widget.MediumImportance
-		clearCatBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), onClearCategory)
-		clearCatBtn.Importance = widget.LowImportance
-		badgeContainer.Add(container.NewHBox(catBadge, clearCatBtn))
+		badgeContainer.Add(filterChip(fmt.Sprintf("%s: %s", lang.L("category"), selectedCategory), onClearCategory))
 	}
 
 	if selectedProject != "" && selectedProject != defaultProject {
 		hasFilters = true
-		projBadge := widget.NewButton(fmt.Sprintf("%s: %s", lang.L("project"), selectedProject), nil)
-		projBadge.Importance = widget.MediumImportance
-		clearProjBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), onClearProject)
-		clearProjBtn.Importance = widget.LowImportance
-		badgeContainer.Add(container.NewHBox(projBadge, clearProjBtn))
+		badgeContainer.Add(filterChip(fmt.Sprintf("%s: %s", lang.L("project"), selectedProject), onClearProject))
 	}
 
 	if hasFilters {
@@ -322,7 +365,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	}
 
 	createExportButton := func(getRange func() (time.Time, time.Time), getGroupBy func() string) *widget.Button {
-		return widget.NewButtonWithIcon(lang.L("export_pdf"), theme.DocumentSaveIcon(), func() {
+		btn := widget.NewButtonWithIcon(lang.L("export_pdf"), theme.DocumentSaveIcon(), func() {
 			start, end := getRange()
 			groupBy := getGroupBy()
 
@@ -359,6 +402,8 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 				}, safeGetMainWindow())
 			}
 		})
+		btn.Importance = widget.HighImportance
+		return btn
 	}
 
 	// Helper to create GroupBy selector
@@ -405,7 +450,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 
 	// Daily Tab
 	var selectedDay = time.Now()
-	dailyLabel := widget.NewLabel("")
+	dailyLabel := widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	var dailySelectedCategory = lang.L("all_categories")
 	var dailySelectedProject = lang.L("all_projects")
 	dailyFilterState := r.getFilterStateManager("daily")
@@ -414,6 +459,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	dailyCategorySelector := widget.NewSelect([]string{lang.L("all_categories")}, nil)
 	dailyCategorySelector.SetSelected(lang.L("all_categories"))
 	dailyProjectSelector := widget.NewSelect(buildProjectOptions(), nil)
+	r.projectSelectors = append(r.projectSelectors, dailyProjectSelector)
 	dailyProjectSelector.SetSelected(lang.L("all_projects"))
 	dailySearchEntry := widget.NewEntry()
 	dailySearchEntry.PlaceHolder = lang.L("search_tasks")
@@ -535,14 +581,8 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	// Filter controls for daily tab
 	dailyFilterControls := []fyne.CanvasObject{
 		dailySearchEntry,
-		container.NewHBox(
-			widget.NewLabel(lang.L("filter_by_category")),
-			dailyCategorySelector,
-		),
-		container.NewHBox(
-			widget.NewLabel(lang.L("filter_by_project")),
-			dailyProjectSelector,
-		),
+		labeledControl(lang.L("filter_by_category"), dailyCategorySelector),
+		labeledControl(lang.L("filter_by_project"), dailyProjectSelector),
 	}
 
 	// Create responsive toolbar for daily tab
@@ -587,7 +627,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		return t.AddDate(0, 0, -offset+1)
 	}
 	var selectedWeekStart = getWeekStart(time.Now())
-	weeklyLabel := widget.NewLabel("")
+	weeklyLabel := widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	weeklyGroupBy := service.GroupByNone
 	var weeklySelectedCategory = lang.L("all_categories")
 	var weeklySelectedProject = lang.L("all_projects")
@@ -597,6 +637,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	weeklyCategorySelector := widget.NewSelect([]string{lang.L("all_categories")}, nil)
 	weeklyCategorySelector.SetSelected(lang.L("all_categories"))
 	weeklyProjectSelector := widget.NewSelect(buildProjectOptions(), nil)
+	r.projectSelectors = append(r.projectSelectors, weeklyProjectSelector)
 	weeklyProjectSelector.SetSelected(lang.L("all_projects"))
 	weeklySearchEntry := widget.NewEntry()
 	weeklySearchEntry.PlaceHolder = lang.L("search_tasks")
@@ -746,18 +787,9 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	// Filter controls for weekly tab
 	weeklyFilterControls := []fyne.CanvasObject{
 		weeklySearchEntry,
-		container.NewHBox(
-			widget.NewLabel(lang.L("group_by")),
-			weeklySelector,
-		),
-		container.NewHBox(
-			widget.NewLabel(lang.L("filter_by_category")),
-			weeklyCategorySelector,
-		),
-		container.NewHBox(
-			widget.NewLabel(lang.L("filter_by_project")),
-			weeklyProjectSelector,
-		),
+		labeledControl(lang.L("group_by"), weeklySelector),
+		labeledControl(lang.L("filter_by_category"), weeklyCategorySelector),
+		labeledControl(lang.L("filter_by_project"), weeklyProjectSelector),
 	}
 
 	// Create responsive toolbar for weekly tab
@@ -797,7 +829,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 		return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location())
 	}
 	var selectedMonth = getMonthStart(time.Now())
-	monthlyLabel := widget.NewLabel("")
+	monthlyLabel := widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	monthlyGroupBy := service.GroupByNone
 	var monthlySelectedCategory = lang.L("all_categories")
 	var monthlySelectedProject = lang.L("all_projects")
@@ -807,6 +839,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	monthlyCategorySelector := widget.NewSelect([]string{lang.L("all_categories")}, nil)
 	monthlyCategorySelector.SetSelected(lang.L("all_categories"))
 	monthlyProjectSelector := widget.NewSelect(buildProjectOptions(), nil)
+	r.projectSelectors = append(r.projectSelectors, monthlyProjectSelector)
 	monthlyProjectSelector.SetSelected(lang.L("all_projects"))
 	monthlySearchEntry := widget.NewEntry()
 	monthlySearchEntry.PlaceHolder = lang.L("search_tasks")
@@ -956,18 +989,9 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	// Filter controls for monthly tab
 	monthlyFilterControls := []fyne.CanvasObject{
 		monthlySearchEntry,
-		container.NewHBox(
-			widget.NewLabel(lang.L("group_by")),
-			monthlySelector,
-		),
-		container.NewHBox(
-			widget.NewLabel(lang.L("filter_by_category")),
-			monthlyCategorySelector,
-		),
-		container.NewHBox(
-			widget.NewLabel(lang.L("filter_by_project")),
-			monthlyProjectSelector,
-		),
+		labeledControl(lang.L("group_by"), monthlySelector),
+		labeledControl(lang.L("filter_by_category"), monthlyCategorySelector),
+		labeledControl(lang.L("filter_by_project"), monthlyProjectSelector),
 	}
 
 	// Create responsive toolbar for monthly tab
@@ -1014,6 +1038,7 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	customCategorySelector := widget.NewSelect([]string{lang.L("all_categories")}, nil)
 	customCategorySelector.SetSelected(lang.L("all_categories"))
 	customProjectSelector := widget.NewSelect(buildProjectOptions(), nil)
+	r.projectSelectors = append(r.projectSelectors, customProjectSelector)
 	customProjectSelector.SetSelected(lang.L("all_projects"))
 	customSearchEntry := widget.NewEntry()
 	customSearchEntry.PlaceHolder = lang.L("search_tasks")
@@ -1211,18 +1236,9 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	// Filter controls for custom tab
 	customFilterControls := []fyne.CanvasObject{
 		customSearchEntry,
-		container.NewHBox(
-			widget.NewLabel(lang.L("group_by")),
-			customSelector,
-		),
-		container.NewHBox(
-			widget.NewLabel(lang.L("filter_by_category")),
-			customCategorySelector,
-		),
-		container.NewHBox(
-			widget.NewLabel(lang.L("filter_by_project")),
-			customProjectSelector,
-		),
+		labeledControl(lang.L("group_by"), customSelector),
+		labeledControl(lang.L("filter_by_category"), customCategorySelector),
+		labeledControl(lang.L("filter_by_project"), customProjectSelector),
 		widget.NewButtonWithIcon(lang.L("refresh"), theme.ViewRefreshIcon(), func() {
 			updateCustom()
 		}),
@@ -1261,26 +1277,31 @@ func (r *Reports) MakeUI() fyne.CanvasObject {
 	}()
 
 	tabs := container.NewAppTabs(
-		container.NewTabItem(lang.L("daily"), dailyTab),
-		container.NewTabItem(lang.L("weekly"), weeklyTab),
-		container.NewTabItem(lang.L("monthly"), monthlyTab),
-		container.NewTabItem(lang.L("custom_range"), customTab),
+		container.NewTabItem(lang.L("daily"), Inset(12, dailyTab)),
+		container.NewTabItem(lang.L("weekly"), Inset(12, weeklyTab)),
+		container.NewTabItem(lang.L("monthly"), Inset(12, monthlyTab)),
+		container.NewTabItem(lang.L("custom_range"), Inset(12, customTab)),
 	)
 
 	tabs.OnSelected = func(item *container.TabItem) {
+		refreshTabTheme(item)
 		switch item.Text {
 		case lang.L("daily"):
-			updateDaily()
+			r.refreshCurrent = updateDaily
 		case lang.L("weekly"):
-			updateWeekly()
+			r.refreshCurrent = updateWeekly
 		case lang.L("monthly"):
-			updateMonthly()
+			r.refreshCurrent = updateMonthly
 		case lang.L("custom_range"):
-			updateCustom()
+			r.refreshCurrent = updateCustom
 		}
+		r.refreshCurrent()
 	}
-	// Select initial tab to trigger data load
+	// The first tab is already selected, so OnSelected does not fire for it:
+	// load it directly.
 	tabs.SelectIndex(0)
+	r.refreshCurrent = updateDaily
+	updateDaily()
 
 	return tabs
 }
@@ -1294,7 +1315,22 @@ type ListItem struct {
 
 func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, start, end time.Time, onRefresh func()) fyne.CanvasObject {
 	if len(entries) == 0 {
-		return widget.NewLabel(lang.L("no_entries"))
+		return emptyState(theme.DocumentIcon(), lang.L("no_entries"), "")
+	}
+
+	projects, _ := r.storage.LoadProjects()
+	projectByID := make(map[string]models.Project, len(projects))
+	for _, p := range projects {
+		projectByID[p.ID] = p
+	}
+	projectName := func(id string) string {
+		if id == "unassigned" {
+			return lang.L("unassigned")
+		}
+		if p, ok := projectByID[id]; ok {
+			return p.Name
+		}
+		return id
 	}
 
 	// Summary
@@ -1302,15 +1338,14 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, star
 	categoryTotals := service.GetCategoryTotals(entries)
 	var total time.Duration
 	for _, e := range entries {
-		dur := time.Duration(e.Duration) * time.Second
-		if e.EndTime.IsZero() {
-			dur = time.Since(e.StartTime)
-		}
+		dur := entryDuration(e)
 		sums[e.Description] += dur
 		total += dur
 	}
 
-	summaryText := fmt.Sprintf(lang.L("total_time")+"%s\n", utils.FormatDuration(total))
+	_, totalTile := statTile(lang.L("stat_total_time"), utils.FormatDuration(total))
+	_, entriesTile := statTile(lang.L("stat_entries"), fmt.Sprintf("%d", len(entries)))
+	tiles := []fyne.CanvasObject{totalTile, entriesTile}
 
 	// Billing calculation
 	hourlyRate := viper.GetFloat64("hourly_rate")
@@ -1328,83 +1363,59 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, star
 		}
 
 		billing := service.CalculateBilling(total, billingConfig, periodDays)
-		summaryText += fmt.Sprintf("%s%.2f\n", lang.L("total_cost"), billing.TotalCost)
+		caption := lang.L("stat_total_cost")
 		if billing.ExtraCost > 0 {
-			summaryText += fmt.Sprintf("  - %s%.2f\n", lang.L("standard_cost"), billing.StandardCost)
-			summaryText += fmt.Sprintf("  - %s%.2f\n", lang.L("extra_cost"), billing.ExtraCost)
+			caption = fmt.Sprintf("%s  (%s%.2f · %s%.2f)", caption,
+				lang.L("standard_cost"), billing.StandardCost, lang.L("extra_cost"), billing.ExtraCost)
 		}
+		_, costTile := statTile(caption, fmt.Sprintf("%.2f", billing.TotalCost))
+		tiles = append(tiles, costTile)
 	}
 
-	// Add project totals if grouping by project
+	// Breakdown: by project when grouping by project, otherwise by category
+	// when there is more than one.
+	var breakdownTitle string
+	var breakdown []breakdownItem
 	if groupBy == service.GroupByProject {
-		projects, _ := r.storage.LoadProjects()
 		projectTotals := service.GetProjectTotals(entries)
 		if len(projectTotals) > 0 {
-			summaryText += fmt.Sprintf("\n%s:\n", lang.L("by_project"))
-			// Sort project IDs for consistent ordering
-			var projectIDs []string
-			for projID := range projectTotals {
-				projectIDs = append(projectIDs, projID)
+			breakdownTitle = lang.L("by_project")
+			for projID, d := range projectTotals {
+				item := breakdownItem{label: projectName(projID), dur: d}
+				if p, ok := projectByID[projID]; ok {
+					item.color = p.ColorHex
+				}
+				breakdown = append(breakdown, item)
 			}
-			sort.Slice(projectIDs, func(i, j int) bool {
-				namei := projectIDs[i]
-				if namei != "unassigned" {
-					for _, p := range projects {
-						if p.ID == namei {
-							namei = p.Name
-							break
-						}
-					}
-				} else {
-					namei = lang.L("unassigned")
-				}
-
-				namej := projectIDs[j]
-				if namej != "unassigned" {
-					for _, p := range projects {
-						if p.ID == namej {
-							namej = p.Name
-							break
-						}
-					}
-				} else {
-					namej = lang.L("unassigned")
-				}
-				return namei < namej
-			})
-			for _, projID := range projectIDs {
-				projName := projID
-				if projID != "unassigned" {
-					for _, p := range projects {
-						if p.ID == projID {
-							projName = p.Name
-							break
-						}
-					}
-				} else {
-					projName = lang.L("unassigned")
-				}
-				summaryText += fmt.Sprintf("  - %s: %s\n", projName, utils.FormatDuration(projectTotals[projID]))
-			}
+			sort.Slice(breakdown, func(i, j int) bool { return breakdown[i].label < breakdown[j].label })
 		}
 	} else if len(categoryTotals) > 1 {
-		// Add category breakdown if there are multiple categories
-		summaryText += fmt.Sprintf("\n%s:\n", lang.L("by_category"))
-		var categories []string
-		for cat := range categoryTotals {
-			categories = append(categories, cat)
+		breakdownTitle = lang.L("by_category")
+		for cat, d := range categoryTotals {
+			breakdown = append(breakdown, breakdownItem{label: cat, dur: d, color: "-"})
 		}
-		sort.Strings(categories)
-		for _, cat := range categories {
-			summaryText += fmt.Sprintf("  - %s: %s\n", cat, utils.FormatDuration(categoryTotals[cat]))
-		}
+		sort.Slice(breakdown, func(i, j int) bool { return breakdown[i].label < breakdown[j].label })
 	}
 
-	summaryText += "\n"
-	for desc, dur := range sums {
-		summaryText += fmt.Sprintf("- %s: %s\n", desc, utils.FormatDuration(dur))
+	var byTask []breakdownItem
+	for desc, d := range sums {
+		byTask = append(byTask, breakdownItem{label: desc, dur: d, color: "-"})
 	}
-	summaryLabel := widget.NewLabel(summaryText)
+	sort.Slice(byTask, func(i, j int) bool {
+		if byTask[i].dur != byTask[j].dur {
+			return byTask[i].dur > byTask[j].dur
+		}
+		return byTask[i].label < byTask[j].label
+	})
+
+	summary := container.NewVBox()
+	if breakdownTitle != "" {
+		summary.Add(sectionTitle(breakdownTitle))
+		summary.Add(breakdownList(breakdown, total))
+		summary.Add(widget.NewSeparator())
+	}
+	summary.Add(sectionTitle(lang.L("by_task")))
+	summary.Add(breakdownList(byTask, total))
 
 	// Build List Items based on Grouping
 	var listItems []ListItem
@@ -1415,14 +1426,7 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, star
 		}
 	} else if groupBy == service.GroupByProject {
 		// Group by project
-		projects, _ := r.storage.LoadProjects()
 		projectGroups := service.GroupByProjectID(entries)
-
-		// Build project name to ID mapping
-		projectNameMap := make(map[string]string)
-		for _, p := range projects {
-			projectNameMap[p.Name] = p.ID
-		}
 
 		// Get sorted project IDs
 		var projectIDs []string
@@ -1432,30 +1436,7 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, star
 
 		// Sort by project name
 		sort.Slice(projectIDs, func(i, j int) bool {
-			namei := projectIDs[i]
-			if namei != "unassigned" {
-				for _, p := range projects {
-					if p.ID == namei {
-						namei = p.Name
-						break
-					}
-				}
-			} else {
-				namei = lang.L("unassigned")
-			}
-
-			namej := projectIDs[j]
-			if namej != "unassigned" {
-				for _, p := range projects {
-					if p.ID == namej {
-						namej = p.Name
-						break
-					}
-				}
-			} else {
-				namej = lang.L("unassigned")
-			}
-			return namei < namej
+			return projectName(projectIDs[i]) < projectName(projectIDs[j])
 		})
 
 		for _, projID := range projectIDs {
@@ -1464,28 +1445,11 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, star
 			// Calculate group total
 			var groupTotal time.Duration
 			for _, e := range groupEntries {
-				dur := time.Duration(e.Duration) * time.Second
-				if e.EndTime.IsZero() {
-					dur = time.Since(e.StartTime)
-				}
-				groupTotal += dur
-			}
-
-			// Get project name for header
-			projName := projID
-			if projID != "unassigned" {
-				for _, p := range projects {
-					if p.ID == projID {
-						projName = p.Name
-						break
-					}
-				}
-			} else {
-				projName = lang.L("unassigned")
+				groupTotal += entryDuration(e)
 			}
 
 			// Add Header
-			listItems = append(listItems, ListItem{IsHeader: true, Header: projName})
+			listItems = append(listItems, ListItem{IsHeader: true, Header: projectName(projID)})
 
 			// Add Entries (reverse order within group)
 			for i := len(groupEntries) - 1; i >= 0; i-- {
@@ -1517,11 +1481,7 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, star
 			// Calculate group total
 			var groupTotal time.Duration
 			for _, e := range groupEntries {
-				dur := time.Duration(e.Duration) * time.Second
-				if e.EndTime.IsZero() {
-					dur = time.Since(e.StartTime)
-				}
-				groupTotal += dur
+				groupTotal += entryDuration(e)
 			}
 
 			// Add Header
@@ -1549,95 +1509,59 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, star
 			// Container that holds layouts, hidden/shown via object type
 			// Header View
 			headerLabel := widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
+			headerLabel.Importance = widget.HighImportance
 
 			// Footer View (Subtotal)
-			footerLabel := widget.NewLabelWithStyle("", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true, Italic: true})
+			footerLabel := widget.NewLabelWithStyle("", fyne.TextAlignTrailing, fyne.TextStyle{Bold: true, Monospace: true})
+			footerLabel.Importance = widget.LowImportance
 
 			// Task View
-			taskContainer := container.NewBorder(nil, nil, nil,
-				container.NewHBox(widget.NewLabel("00:00:00"), widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), nil), widget.NewButtonWithIcon("", theme.DeleteIcon(), nil)),
-				container.NewVBox(
-					widget.NewLabelWithStyle(lang.L("title"), fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-					widget.NewLabelWithStyle(lang.L("date"), fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
-					widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Italic: true}), // Project label
-				))
-
-			return container.NewMax(headerLabel, footerLabel, taskContainer)
+			return container.NewStack(headerLabel, footerLabel, newTaskRow())
 		},
 		func(i int, o fyne.CanvasObject) {
 			item := listItems[i]
 			containerBox := o.(*fyne.Container)
 			headerLabel := containerBox.Objects[0].(*widget.Label)
 			footerLabel := containerBox.Objects[1].(*widget.Label)
-			taskBox := containerBox.Objects[2].(*fyne.Container)
+			row := containerBox.Objects[2].(*taskRow)
 
 			if item.IsHeader {
 				headerLabel.Show()
 				footerLabel.Hide()
-				taskBox.Hide()
+				row.Hide()
 				headerLabel.SetText(item.Header)
 			} else if item.IsFooter {
 				headerLabel.Hide()
 				footerLabel.Show()
-				taskBox.Hide()
+				row.Hide()
 				footerLabel.SetText(item.Header)
 			} else {
 				headerLabel.Hide()
 				footerLabel.Hide()
-				taskBox.Show()
+				row.Show()
 
 				entry := item.Entry
 
-				// Extract sub-widgets from taskBox
-				rightBox := taskBox.Objects[1].(*fyne.Container)
-				durLabel := rightBox.Objects[0].(*widget.Label)
-				editBtn := rightBox.Objects[1].(*widget.Button)
-				delBtn := rightBox.Objects[2].(*widget.Button)
-
-				infoBox := taskBox.Objects[0].(*fyne.Container)
-				titleLabel := infoBox.Objects[0].(*widget.Label)
-				dateLabel := infoBox.Objects[1].(*widget.Label)
-				projectLabel := infoBox.Objects[2].(*widget.Label)
-
-				titleLabel.SetText(entry.Description)
-				dateLabel.SetText(entry.StartTime.Format("Mon, 02 Jan 15:04"))
-
 				// Display project name if assigned
-				if entry.ProjectID != "" {
-					projectName := ""
-					for _, p := range r.projects {
-						if p.ID == entry.ProjectID {
-							projectName = p.Name
-							break
-						}
-					}
-					if projectName != "" {
-						projectLabel.SetText(lang.L("project") + ": " + projectName)
-						projectLabel.Show()
-					} else {
-						projectLabel.SetText("")
-						projectLabel.Hide()
-					}
-				} else {
-					projectLabel.SetText("")
-					projectLabel.Hide()
+				name, hex := "", ""
+				if p, ok := projectByID[entry.ProjectID]; ok {
+					name, hex = p.Name, p.ColorHex
 				}
+				row.title.SetText(entry.Description)
+				row.swatch.SetHex(hex)
+				row.meta.SetText(entryMeta(entry, name, "Mon, 02 Jan 15:04"))
 
-				dur := time.Duration(entry.Duration) * time.Second
+				row.setDuration(utils.FormatDuration(entryDuration(entry)), entry.EndTime.IsZero())
 				if entry.EndTime.IsZero() {
-					dur = time.Since(entry.StartTime)
-					durLabel.TextStyle = fyne.TextStyle{Italic: true}
-					editBtn.Disable()
+					row.edit.Disable()
 				} else {
-					durLabel.TextStyle = fyne.TextStyle{}
-					editBtn.Enable()
+					row.edit.Enable()
 				}
-				durLabel.SetText(utils.FormatDuration(dur))
 
-				editBtn.OnTapped = func() {
+				row.edit.OnTapped = func() {
 					r.showEditDialog(entry, onRefresh)
 				}
-				delBtn.OnTapped = func() {
+				row.del.OnTapped = func() {
 					parentWindow := safeGetMainWindow()
 					if parentWindow == nil {
 						return
@@ -1653,13 +1577,125 @@ func (r *Reports) renderHistory(entries []models.TimeEntry, groupBy string, star
 			}
 		},
 	)
+	// Rows are not selectable; the buttons carry the actions.
+	listView.OnSelected = func(id widget.ListItemID) { listView.UnselectAll() }
+	// Group headers and subtotals are a single line, so keep them compact.
+	lineHeight := widget.NewLabel("X").MinSize().Height
+	for i, item := range listItems {
+		if item.IsHeader || item.IsFooter {
+			listView.SetItemHeight(i, lineHeight)
+		}
+	}
+
+	entriesPanel := newSurfaceWithInset(listView, 4)
+	summaryPanel := NewSurface(container.NewVScroll(summary))
+
+	// Entries and summary side by side on wide windows, stacked on narrow ones.
+	var body *container.Split
+	if w := safeGetMainWindow(); w != nil && IsCompactScreen(w.Canvas()) {
+		body = container.NewVSplit(summaryPanel, entriesPanel)
+		body.Offset = 0.35
+	} else {
+		body = container.NewHSplit(entriesPanel, summaryPanel)
+		body.Offset = 0.62
+	}
 
 	return container.NewBorder(
-		container.NewVBox(summaryLabel, widget.NewSeparator()),
+		Inset(0, container.NewGridWithColumns(len(tiles), tiles...)),
 		nil, nil, nil,
-		listView,
+		body,
 	)
 }
+
+// breakdownItem is one line of a report summary.
+type breakdownItem struct {
+	label string
+	dur   time.Duration
+	// color is a project colour; "" shows a hollow marker, "-" no marker.
+	color string
+}
+
+// breakdownList lists labels with their time and a bar showing their share
+// of the total.
+func breakdownList(items []breakdownItem, total time.Duration) fyne.CanvasObject {
+	box := container.NewVBox()
+	for _, it := range items {
+		label := widget.NewLabel(it.label)
+		label.Truncation = fyne.TextTruncateEllipsis
+		dur := widget.NewLabelWithStyle(utils.FormatDuration(it.dur), fyne.TextAlignTrailing, fyne.TextStyle{Monospace: true})
+
+		var left fyne.CanvasObject
+		if it.color != "-" {
+			left = container.NewCenter(NewSwatch(it.color, 10))
+		}
+		ratio := float32(0)
+		if total > 0 {
+			ratio = float32(it.dur) / float32(total)
+		}
+		line := container.NewBorder(nil, nil, left, dur, label)
+		row := container.NewVBox(line, newRatioBar(ratio, it.color))
+		row.Layout = &tightVBox{gap: -4}
+		box.Add(row)
+	}
+	return box
+}
+
+// ratioBar is a thin horizontal bar filled to a fraction of its width.
+type ratioBar struct {
+	widget.BaseWidget
+	ratio float32
+	hex   string
+}
+
+func newRatioBar(ratio float32, hex string) *ratioBar {
+	b := &ratioBar{ratio: ratio, hex: hex}
+	b.ExtendBaseWidget(b)
+	return b
+}
+
+func (b *ratioBar) CreateRenderer() fyne.WidgetRenderer {
+	track := canvas.NewRectangle(color.Transparent)
+	track.CornerRadius = 2
+	fill := canvas.NewRectangle(color.Transparent)
+	fill.CornerRadius = 2
+	r := &ratioBarRenderer{b: b, track: track, fill: fill}
+	r.Refresh()
+	return r
+}
+
+type ratioBarRenderer struct {
+	b     *ratioBar
+	track *canvas.Rectangle
+	fill  *canvas.Rectangle
+}
+
+func (r *ratioBarRenderer) Layout(size fyne.Size) {
+	pad := theme.Padding()
+	w := size.Width - 2*pad
+	r.track.Move(fyne.NewPos(pad, 0))
+	r.track.Resize(fyne.NewSize(w, size.Height))
+	r.fill.Move(fyne.NewPos(pad, 0))
+	r.fill.Resize(fyne.NewSize(w*r.b.ratio, size.Height))
+}
+
+func (r *ratioBarRenderer) MinSize() fyne.Size { return fyne.NewSize(0, 4) }
+
+func (r *ratioBarRenderer) Refresh() {
+	r.track.FillColor = theme.Color(colorNameSubtle)
+	if r.b.hex != "" && r.b.hex != "-" {
+		r.fill.FillColor = utils.ParseHexColor(r.b.hex)
+	} else {
+		r.fill.FillColor = theme.Color(theme.ColorNamePrimary)
+	}
+	r.track.Refresh()
+	r.fill.Refresh()
+}
+
+func (r *ratioBarRenderer) Objects() []fyne.CanvasObject {
+	return []fyne.CanvasObject{r.track, r.fill}
+}
+
+func (r *ratioBarRenderer) Destroy() {}
 
 func (r *Reports) showEditDialog(entry models.TimeEntry, onSuccess func()) {
 	descEntry := widget.NewEntry()

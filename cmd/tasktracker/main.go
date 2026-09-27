@@ -22,10 +22,8 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/lang"
-	"fyne.io/fyne/v2/theme"
 )
 
 //go:embed Icon.png
@@ -158,7 +156,9 @@ func main() {
 	}
 
 	a := app.NewWithID("com.highercomve.task-tracker")
-	a.Settings().SetTheme(theme.DarkTheme())
+	ui.ApplyTheme(a)
+	// Follow the desktop's light/dark switch while the preference is "system".
+	a.Settings().AddListener(func(fyne.Settings) { ui.ApplyTheme(a) })
 
 	// Register translations
 	if err := lang.AddTranslationsFS(i18n.TranslationsFS, "translations"); err != nil {
@@ -170,7 +170,7 @@ func main() {
 	a.SetIcon(iconResource)
 
 	w := a.NewWindow(lang.L("app_title"))
-	w.Resize(fyne.NewSize(400, 600))
+	w.Resize(ui.DefaultWindowSize)
 
 	if viperErr != nil {
 		dialog.ShowError(viperErr, w)
@@ -179,19 +179,9 @@ func main() {
 	}
 
 	storage := store.NewStorage(viper.GetString("data_folder"))
-	dashboard := ui.NewDashboard(storage)
-	reports := ui.NewReports(storage)
-	projects := ui.NewProjects(storage)
-	configUI := ui.NewConfig(w, storage, userConfigFilePath)
+	content, dashboard := ui.BuildMainContent(w, storage, userConfigFilePath, iconResource)
 
-	tabs := container.NewAppTabs(
-		container.NewTabItem(lang.L("tracker_tab"), dashboard.MakeUI()),
-		container.NewTabItem(lang.L("reports_tab"), reports.MakeUI()),
-		container.NewTabItem(lang.L("projects_tab"), projects.MakeUI()),
-		container.NewTabItem(lang.L("config_tab"), configUI.MakeUI()),
-	)
-
-	w.SetContent(tabs)
+	w.SetContent(content)
 
 	dashboard.SetupShortcuts(w)
 
