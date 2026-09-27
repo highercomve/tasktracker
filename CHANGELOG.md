@@ -1,11 +1,28 @@
 
+<a name="v0.2.0"></a>
+## [v0.2.0](https://github.com/highercomve/tasktracker/compare/v0.1.4...v0.2.0) - 2026-09-27
+
+### Feature
+- make updater-key sets up the signing key pair
+- adopt pvflasher's signed self-updater
+- refresh the GUI to match pvflasher
+
+
 <a name="v0.1.4"></a>
 ## [v0.1.4](https://github.com/highercomve/tasktracker/compare/v0.1.3...v0.1.4) - 2026-06-05
 
 ### Bug Fixes
+- crash on Windows when opening the exported PDF
+- move CI fully onto Node 24 actions to clear deprecation notices
+- silence Node 20 deprecation warning in CI
+- set windows GUI subsystem (no console window); add flatpak builds
+- keep auto-update asset names/format, package macOS as .app
+- build all platforms natively and cross-compile windows with zig
+- correct gtk dev package and build release assets in parallel
 - resolve report freeze, slow range loading, and filter persistence bugs
 
 ### Feature
+- embed windows icon via go-winres; build macOS arm64 only
 - build crossplatform with libgtk3
 
 
@@ -42,14 +59,12 @@
 <a name="v0.1.0"></a>
 ## [v0.1.0](https://github.com/highercomve/tasktracker/compare/v0.0.11...v0.1.0) - 2026-01-01
 
-### Feature
-- add pdf export to the reports
-
 
 <a name="v0.0.11"></a>
-## [v0.0.11](https://github.com/highercomve/tasktracker/compare/v0.0.10...v0.0.11) - 2025-12-08
+## [v0.0.11](https://github.com/highercomve/tasktracker/compare/v0.0.10...v0.0.11) - 2026-01-01
 
 ### Feature
+- add pdf export to the reports
 - add translation
 
 
