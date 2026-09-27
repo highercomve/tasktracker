@@ -3,6 +3,7 @@ module github.com/highercomve/tasktracker
 go 1.24.4
 
 require (
+	aead.dev/minisign v0.3.0
 	fyne.io/fyne/v2 v2.7.1
 	github.com/google/uuid v1.6.0
 	github.com/johnfercher/maroto v1.0.0
@@ -51,6 +52,7 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
+	golang.org/x/crypto v0.33.0 // indirect
 	golang.org/x/image v0.24.0 // indirect
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect

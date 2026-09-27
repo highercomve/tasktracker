@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/highercomve/tasktracker/internal/models"
@@ -24,6 +25,9 @@ type Projects struct {
 	projects []models.Project
 	entries  []models.TimeEntry
 
+	// stats caches the totals shown in each row, keyed by project ID
+	stats map[string]service.ProjectStats
+
 	// UI
 	projectList *widget.List
 	refreshList func()
@@ -44,14 +48,16 @@ func (p *Projects) MakeUI() fyne.CanvasObject {
 	}
 
 	// Create button
-	createBtn := widget.NewButtonWithIcon(lang.L("add"), theme.ContentAddIcon(), nil)
+	createBtn := widget.NewButtonWithIcon(lang.L("new_project"), theme.ContentAddIcon(), nil)
+	createBtn.Importance = widget.HighImportance
 
 	// Search entry
 	searchEntry := widget.NewEntry()
-	searchEntry.PlaceHolder = lang.L("search_tasks")
+	searchEntry.PlaceHolder = lang.L("search_projects")
+	searchEntry.ActionItem = widget.NewIcon(theme.SearchIcon())
 
 	// Toolbar
-	toolbar := container.NewBorder(nil, nil, nil, createBtn, searchEntry)
+	toolbar := container.NewBorder(nil, nil, sectionTitle(lang.L("projects_tab")), createBtn, searchEntry)
 
 	// Project List
 	p.projectList = widget.NewList(
@@ -66,6 +72,22 @@ func (p *Projects) MakeUI() fyne.CanvasObject {
 			p.updateProjectItem(o, p.projects[i])
 		},
 	)
+	// Rows are not selectable; the buttons carry the actions.
+	p.projectList.OnSelected = func(id widget.ListItemID) { p.projectList.UnselectAll() }
+
+	noProjects := emptyState(theme.FolderIcon(), lang.L("no_projects"), lang.L("no_projects_hint"))
+	noMatches := emptyState(theme.SearchIcon(), lang.L("no_matching_projects"), "")
+	updateEmpty := func() {
+		noProjects.Hide()
+		noMatches.Hide()
+		if len(p.projects) == 0 {
+			if searchEntry.Text == "" {
+				noProjects.Show()
+			} else {
+				noMatches.Show()
+			}
+		}
+	}
 
 	p.refreshList = func() {
 		// Reload projects
@@ -80,7 +102,9 @@ func (p *Projects) MakeUI() fyne.CanvasObject {
 			p.projects = filtered
 		}
 
+		p.loadStats()
 		p.projectList.Refresh()
+		updateEmpty()
 	}
 
 	// Create button action
@@ -102,71 +126,96 @@ func (p *Projects) MakeUI() fyne.CanvasObject {
 			}
 		}
 		p.projectList.Refresh()
+		updateEmpty()
 	}
 
-	return container.NewBorder(
-		toolbar,
+	p.loadStats()
+	updateEmpty()
+
+	return Inset(12, container.NewBorder(
+		Inset(2, toolbar),
 		nil, nil, nil,
-		p.projectList,
-	)
+		newSurfaceWithInset(container.NewStack(p.projectList, noProjects, noMatches), 4),
+	))
+}
+
+// Refresh reloads the projects and their totals, e.g. after tracking time.
+func (p *Projects) Refresh() {
+	if p.refreshList != nil {
+		p.refreshList()
+	}
+}
+
+// projectRow is one project in the list.
+type projectRow struct {
+	widget.BaseWidget
+
+	swatch *Swatch
+	name   *widget.Label
+	desc   *widget.Label
+	stats  *widget.Label
+	edit   *widget.Button
+	del    *widget.Button
+
+	content fyne.CanvasObject
 }
 
 // createProjectItemContainer creates a template for a project list item
 func createProjectItemContainer() fyne.CanvasObject {
-	return container.NewBorder(
-		nil, nil, nil,
-		container.NewHBox(
-			widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), nil),
-			widget.NewButtonWithIcon("", theme.DeleteIcon(), nil),
-		),
-		container.NewVBox(
-			widget.NewLabel("Project Name"),
-			widget.NewLabel("Description"),
-			widget.NewLabel("Entries: 0 | Time: 00:00"),
-		),
+	r := &projectRow{
+		swatch: NewSwatch("", 16),
+		name:   widget.NewLabelWithStyle("Project Name", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
+		desc:   captionLabel("Description"),
+		stats:  widget.NewLabelWithStyle("", fyne.TextAlignTrailing, fyne.TextStyle{Monospace: true}),
+		edit:   iconButton(theme.DocumentCreateIcon(), nil),
+		del:    iconButton(theme.DeleteIcon(), nil),
+	}
+	r.name.Truncation = fyne.TextTruncateEllipsis
+	r.desc.Truncation = fyne.TextTruncateEllipsis
+
+	text := container.NewVBox(r.name, r.desc)
+	text.Layout = &tightVBox{gap: -10}
+
+	r.content = container.NewBorder(nil, nil,
+		container.NewCenter(Inset(6, r.swatch)),
+		container.NewHBox(container.NewCenter(r.stats), container.NewCenter(r.edit), container.NewCenter(r.del)),
+		text,
 	)
+	r.ExtendBaseWidget(r)
+	return r
+}
+
+func (r *projectRow) CreateRenderer() fyne.WidgetRenderer {
+	return widget.NewSimpleRenderer(r.content)
 }
 
 // updateProjectItem updates the display of a project list item
 func (p *Projects) updateProjectItem(o fyne.CanvasObject, project models.Project) {
-	box := o.(*fyne.Container)
-	vbox := box.Objects[0].(*fyne.Container)
-	buttons := box.Objects[1].(*fyne.Container)
+	row := o.(*projectRow)
 
-	nameLabel := vbox.Objects[0].(*widget.Label)
-	descLabel := vbox.Objects[1].(*widget.Label)
-	statsLabel := vbox.Objects[2].(*widget.Label)
-
-	editBtn := buttons.Objects[0].(*widget.Button)
-	delBtn := buttons.Objects[1].(*widget.Button)
-
-	// Set name with color indicator if available
-	nameLabel.SetText(project.Name)
-	if project.ColorHex != "" {
-		nameLabel.TextStyle = fyne.TextStyle{Bold: true}
-	}
+	row.name.SetText(project.Name)
+	row.swatch.SetHex(project.ColorHex)
 
 	// Set description
 	if project.Description != "" {
-		descLabel.SetText(project.Description)
+		row.desc.SetText(project.Description)
 	} else {
-		descLabel.SetText("No description")
-		descLabel.TextStyle = fyne.TextStyle{Italic: true}
+		row.desc.SetText(lang.L("no_description"))
 	}
 
 	// Calculate and set stats
-	stats := p.calculateProjectStats(project.ID)
-	statsLabel.SetText(fmt.Sprintf("Entries: %d | Time: %s", stats.EntryCount, utils.FormatDuration(stats.TotalTime)))
+	stats := p.cachedProjectStats(project.ID)
+	row.stats.SetText(fmt.Sprintf(lang.L("project_stats"), stats.EntryCount, utils.FormatDuration(stats.TotalTime)))
 
 	// Edit button
-	editBtn.OnTapped = func() {
+	row.edit.OnTapped = func() {
 		p.showEditProjectDialog(project, func() {
 			p.refreshList()
 		})
 	}
 
 	// Delete button
-	delBtn.OnTapped = func() {
+	row.del.OnTapped = func() {
 		parentWindow := safeGetMainWindow()
 		if parentWindow == nil {
 			return
@@ -183,7 +232,7 @@ func (p *Projects) updateProjectItem(o fyne.CanvasObject, project models.Project
 			message = fmt.Sprintf("Are you sure you want to delete project '%s'?", project.Name)
 		}
 
-		dialog.ShowConfirm(
+		d := dialog.NewConfirm(
 			lang.L("confirm_deletion"),
 			message,
 			func(confirmed bool) {
@@ -212,7 +261,31 @@ func (p *Projects) updateProjectItem(o fyne.CanvasObject, project models.Project
 			},
 			parentWindow,
 		)
+		d.SetConfirmImportance(widget.DangerImportance)
+		d.Show()
 	}
+}
+
+// loadStats computes every project's totals in one pass over the entries, so
+// scrolling the list does not reload the whole history for each row.
+func (p *Projects) loadStats() {
+	entries, err := p.storage.LoadEntriesForRange(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), time.Now())
+	if err != nil {
+		entries = []models.TimeEntry{}
+	}
+	p.stats = make(map[string]service.ProjectStats)
+	for _, s := range service.GetProjectsWithStats(p.projects, entries) {
+		p.stats[s.ProjectID] = s
+	}
+}
+
+// cachedProjectStats returns the totals computed by loadStats, falling back to
+// computing them when the project is not known yet.
+func (p *Projects) cachedProjectStats(projectID string) service.ProjectStats {
+	if s, ok := p.stats[projectID]; ok {
+		return s
+	}
+	return p.calculateProjectStats(projectID)
 }
 
 // calculateProjectStats calculates stats for a project
@@ -262,7 +335,7 @@ func (p *Projects) showCreateProjectDialog(onSave func()) {
 	items := []*widget.FormItem{
 		widget.NewFormItem("Name", nameEntry),
 		widget.NewFormItem("Description", descEntry),
-		widget.NewFormItem("Color", colorEntry),
+		widget.NewFormItem("Color", colorPicker(colorEntry)),
 	}
 
 	parentWindow := safeGetMainWindow()
@@ -319,7 +392,7 @@ func (p *Projects) showEditProjectDialog(project models.Project, onSave func()) 
 	items := []*widget.FormItem{
 		widget.NewFormItem("Name", nameEntry),
 		widget.NewFormItem("Description", descEntry),
-		widget.NewFormItem("Color", colorEntry),
+		widget.NewFormItem("Color", colorPicker(colorEntry)),
 	}
 
 	parentWindow := safeGetMainWindow()
@@ -371,6 +444,37 @@ func (p *Projects) showEditProjectDialog(project models.Project, onSave func()) 
 
 	dlg.Resize(fyne.NewSize(parentWindow.Canvas().Size().Width*3/4, dlg.MinSize().Height))
 	dlg.Show()
+}
+
+// projectPalette offers a few ready-made project colours.
+var projectPalette = []string{
+	"#3B82F6", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6",
+	"#EC4899", "#14B8A6", "#F97316", "#64748B",
+}
+
+// colorPicker pairs the hex entry with a live preview and preset swatches.
+func colorPicker(entry *widget.Entry) fyne.CanvasObject {
+	preview := NewSwatch(entry.Text, 20)
+	onChanged := entry.OnChanged
+	entry.OnChanged = func(s string) {
+		preview.SetHex(strings.TrimSpace(s))
+		if onChanged != nil {
+			onChanged(s)
+		}
+	}
+
+	presets := container.NewHBox()
+	for _, hex := range projectPalette {
+		hex := hex
+		btn := widget.NewButton("", func() { entry.SetText(hex) })
+		btn.Importance = widget.LowImportance
+		presets.Add(container.NewStack(btn, container.NewCenter(NewSwatch(hex, 18))))
+	}
+
+	return container.NewVBox(
+		container.NewBorder(nil, nil, nil, container.NewCenter(Inset(4, preview)), entry),
+		presets,
+	)
 }
 
 // filterProjects filters projects by name or description

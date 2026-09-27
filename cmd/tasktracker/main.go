@@ -3,29 +3,23 @@ package main
 import (
 	_ "embed" // Required for go:embed
 
-	"context"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/spf13/viper"
 
 	"github.com/highercomve/tasktracker/internal/i18n"
 	"github.com/highercomve/tasktracker/internal/store"
 	"github.com/highercomve/tasktracker/internal/ui"
-	"github.com/highercomve/tasktracker/internal/updater"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/lang"
-	"fyne.io/fyne/v2/theme"
 )
 
 //go:embed Icon.png
@@ -120,45 +114,10 @@ func main() {
 		os.Setenv("FYNE_LANG", "en")
 	}
 
-	// Self-update with timeout - allows for graceful cancellation
-	var wg sync.WaitGroup
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// Check for updates with timeout
-		select {
-		case <-ctx.Done():
-			log.Printf("Self-update check timed out")
-			return
-		default:
-			err := updater.SelfUpdate("highercomve", "tasktracker")
-			if err != nil {
-				log.Printf("Self-update failed: %v", err)
-			}
-		}
-	}()
-
-	// Wait for update check with a reasonable timeout
-	done := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	// Don't block app startup - allow 2 seconds for update check
-	select {
-	case <-done:
-		// Update check finished
-	case <-time.After(2 * time.Second):
-		// Timeout - continue with app startup
-		log.Printf("Self-update check took too long, continuing with app startup")
-	}
-
 	a := app.NewWithID("com.highercomve.task-tracker")
-	a.Settings().SetTheme(theme.DarkTheme())
+	ui.ApplyTheme(a)
+	// Follow the desktop's light/dark switch while the preference is "system".
+	a.Settings().AddListener(func(fyne.Settings) { ui.ApplyTheme(a) })
 
 	// Register translations
 	if err := lang.AddTranslationsFS(i18n.TranslationsFS, "translations"); err != nil {
@@ -170,7 +129,7 @@ func main() {
 	a.SetIcon(iconResource)
 
 	w := a.NewWindow(lang.L("app_title"))
-	w.Resize(fyne.NewSize(400, 600))
+	w.Resize(ui.DefaultWindowSize)
 
 	if viperErr != nil {
 		dialog.ShowError(viperErr, w)
@@ -179,19 +138,9 @@ func main() {
 	}
 
 	storage := store.NewStorage(viper.GetString("data_folder"))
-	dashboard := ui.NewDashboard(storage)
-	reports := ui.NewReports(storage)
-	projects := ui.NewProjects(storage)
-	configUI := ui.NewConfig(w, storage, userConfigFilePath)
+	content, dashboard := ui.BuildMainContent(w, storage, userConfigFilePath, iconResource)
 
-	tabs := container.NewAppTabs(
-		container.NewTabItem(lang.L("tracker_tab"), dashboard.MakeUI()),
-		container.NewTabItem(lang.L("reports_tab"), reports.MakeUI()),
-		container.NewTabItem(lang.L("projects_tab"), projects.MakeUI()),
-		container.NewTabItem(lang.L("config_tab"), configUI.MakeUI()),
-	)
-
-	w.SetContent(tabs)
+	w.SetContent(content)
 
 	dashboard.SetupShortcuts(w)
 

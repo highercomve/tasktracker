@@ -2,3 +2,5 @@ fyne-cross
 data
 dist
 cmd/tasktracker/*.syso
+/main
+/tasktracker

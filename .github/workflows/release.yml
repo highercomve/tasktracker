@@ -17,8 +17,9 @@ jobs:
             matrix:
                 include:
                     # Linux: native gcc on matching-arch runners. Bare-binary
-                    # .tar.xz — the exact name/format the in-app auto-updater
-                    # expects (internal/updater/updater.go). DO NOT change these.
+                    # .tar.xz — the exact name/format the self-updater expects
+                    # (tools/updater signs it for internal/update; releases up
+                    # to v0.1.4 match it by name too). DO NOT change these.
                     - target: linux-amd64
                       runs-on: ubuntu-latest
                       make: build-native
@@ -36,7 +37,7 @@ jobs:
 
                     # Flatpak/sandbox builds: same native binary but with the
                     # `flatpak` tag so Fyne uses XDG Desktop Portals. Separate
-                    # asset name (-flatpak) so the auto-updater never picks it.
+                    # asset name (-flatpak) so the updaters never pick it.
                     - target: linux-amd64-flatpak
                       runs-on: ubuntu-latest
                       make: build-native
@@ -55,7 +56,7 @@ jobs:
                       gtk: true
 
                     # Windows: cross-compile from Linux with zig. Bare-exe .zip,
-                    # also consumed by the auto-updater. Keep names/format.
+                    # also consumed by the self-updater. Keep names/format.
                     - target: windows-amd64
                       runs-on: ubuntu-latest
                       make: build-windows-amd64
@@ -72,8 +73,9 @@ jobs:
                       zig: true
 
                     # macOS: native build wrapped into a proper .app bundle via
-                    # `fyne package`. Not auto-updated, so the format is free.
-                    # arm64 (Apple Silicon) only for now.
+                    # `fyne package`. The self-updater unpacks tasktracker.app
+                    # from this .zip, so keep the name and the bundle at its
+                    # root. arm64 (Apple Silicon) only for now.
                     - target: darwin-arm64
                       runs-on: macos-14
                       make: build-native
@@ -153,14 +155,56 @@ jobs:
         needs: build
         if: ${{ !cancelled() }} # release whatever built, even if some targets failed
         runs-on: ubuntu-latest
+        env:
+            HAS_UPDATER_KEY: ${{ secrets.UPDATER_PRIVATE_KEY != '' }}
+            PRERELEASE: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
         steps:
+            # For CHANGELOG.md and tools/updater.
+            - name: Checkout code
+              uses: actions/checkout@v6
+
+            - name: Set up Go
+              uses: actions/setup-go@v6
+              with:
+                  go-version: "1.24"
+
             - name: Download all artifacts
               uses: actions/download-artifact@v8
               with:
                   path: artifacts
                   merge-multiple: true
 
+            # Self-updater: sign every update bundle with the minisign key and
+            # write latest.json (Tauri format), which the app reads from
+            # releases/latest. Pre-releases are not offered as updates.
+            - name: Sign update bundles
+              if: env.HAS_UPDATER_KEY == 'true' && env.PRERELEASE != 'true'
+              env:
+                  UPDATER_PRIVATE_KEY: ${{ secrets.UPDATER_PRIVATE_KEY }}
+              run: |
+                  go run ./tools/updater \
+                      --version "${GITHUB_REF_NAME}" \
+                      --base-url "https://github.com/${{ github.repository }}/releases/download/${GITHUB_REF_NAME}" \
+                      --changelog CHANGELOG.md \
+                      --out artifacts/latest.json \
+                      artifacts/*
+                  # The signatures are in latest.json. Don't publish the .sig
+                  # files: the updater of v0.1.4 and older picks assets by
+                  # name and would take tasktracker-linux-amd64.tar.xz.sig for
+                  # the bundle.
+                  rm -f artifacts/*.sig
+
+            # Every release embeds the updater's public key; publishing one that
+            # isn't backed by the secret would leave its installs unable to
+            # update. Create the key with `make updater-key` (see README).
+            - name: Require the updater signing key
+              if: env.HAS_UPDATER_KEY != 'true'
+              run: |
+                  echo "::error::UPDATER_PRIVATE_KEY is not set. Run 'make updater-key', commit internal/update/pubkey.go and add the key as the UPDATER_PRIVATE_KEY secret."
+                  exit 1
+
             - name: Create Release
               uses: softprops/action-gh-release@v3
               with:
                   files: artifacts/*
+                  prerelease: ${{ env.PRERELEASE == 'true' }}

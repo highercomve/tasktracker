@@ -19,7 +19,6 @@ import (
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/lang"
-	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/google/uuid"
@@ -30,6 +29,8 @@ type Dashboard struct {
 	storage   *store.Storage
 	timerData binding.String
 	taskList  []models.TimeEntry
+	// todayEntries is today's list before the search filter
+	todayEntries []models.TimeEntry
 
 	// State - protected by mu
 	mu                  sync.RWMutex
@@ -51,7 +52,19 @@ type Dashboard struct {
 	categoryEntry *widget.Entry
 	refreshList   func()
 	projects      []models.Project
+
+	// Status shown above the timer and in the app bar
+	statusSwatch *Swatch
+	statusLabel  *widget.Label
+	badge        *fyne.Container
+	badgeSwatch  *Swatch
 }
+
+// Colours of the status dot for a running and a paused task.
+const (
+	stateColorRunning = "#10B981"
+	stateColorPaused  = "#F59E0B"
+)
 
 func NewDashboard(s *store.Storage) *Dashboard {
 	return &Dashboard{
@@ -190,10 +203,16 @@ func (d *Dashboard) checkIdle() {
 func (d *Dashboard) MakeUI() fyne.CanvasObject {
 	d.timerData.Set("00:00:00")
 
-	// Timer Label
+	// Timer: large monospace digits with the state of the active task above.
 	timerLabel := widget.NewLabelWithData(d.timerData)
-	timerLabel.TextStyle = fyne.TextStyle{Bold: true}
+	timerLabel.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
 	timerLabel.Alignment = fyne.TextAlignCenter
+	timerLabel.SizeName = sizeNameTimer
+
+	d.statusSwatch = NewSwatch("", 10)
+	d.statusLabel = widget.NewLabel(lang.L("ready_to_track"))
+	d.statusLabel.Importance = widget.LowImportance
+	statusRow := container.NewCenter(container.NewHBox(container.NewCenter(d.statusSwatch), d.statusLabel))
 
 	// Load projects
 	projects, err := d.storage.LoadProjects()
@@ -210,32 +229,15 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 	d.categoryEntry.PlaceHolder = lang.L("category_hint")
 
 	// Project Selection with color indicator
-	projectOptions := []string{lang.L("none")}
-	for _, p := range d.projects {
-		projectOptions = append(projectOptions, p.Name)
-	}
-	d.projectSelect = widget.NewSelect(projectOptions, nil)
+	d.projectSelect = widget.NewSelect(d.projectOptions(), nil)
 	d.projectSelect.SetSelected(lang.L("none"))
 	d.projectSelect.PlaceHolder = lang.L("select_project")
 
-	// Create color indicator for selected project
-	projectColorIndicator := canvas.NewRectangle(color.Transparent)
-	projectColorIndicator.SetMinSize(fyne.NewSize(12, 12))
-	projectColorIndicator.CornerRadius = 6
+	projectColorIndicator := NewSwatch("", 12)
 
 	// Update color indicator when project changes
 	d.projectSelect.OnChanged = func(selected string) {
-		if selected == lang.L("none") || selected == "" {
-			projectColorIndicator.FillColor = color.Transparent
-		} else {
-			for _, p := range d.projects {
-				if p.Name == selected && p.ColorHex != "" {
-					projectColorIndicator.FillColor = utils.ParseHexColor(p.ColorHex)
-					break
-				}
-			}
-		}
-		projectColorIndicator.Refresh()
+		projectColorIndicator.SetHex(d.projectColor(d.projectIDByName(selected)))
 	}
 
 	// Buttons
@@ -299,6 +301,7 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 	// Search
 	d.searchEntry = widget.NewEntry()
 	d.searchEntry.PlaceHolder = lang.L("search_tasks")
+	d.searchEntry.ActionItem = widget.NewIcon(theme.SearchIcon())
 	d.searchEntry.OnChanged = func(s string) {
 		d.refreshList()
 	}
@@ -306,44 +309,18 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 	// List
 	simpleList := widget.NewList(
 		func() int { return len(d.taskList) },
-		func() fyne.CanvasObject {
-			return container.NewBorder(nil, nil, nil,
-				container.NewHBox(widget.NewLabel("00:00"), widget.NewButtonWithIcon("", theme.DocumentCreateIcon(), nil), widget.NewButtonWithIcon("", theme.DeleteIcon(), nil)),
-				container.NewVBox(
-					widget.NewLabel(lang.L("title")),
-					widget.NewLabelWithStyle("", fyne.TextAlignLeading, fyne.TextStyle{Italic: true}),
-				))
-		},
+		func() fyne.CanvasObject { return newTaskRow() },
 		func(i int, o fyne.CanvasObject) {
 			// Safety check
 			if i >= len(d.taskList) {
 				return
 			}
 			entry := d.taskList[len(d.taskList)-1-i] // Reverse order
-			box := o.(*fyne.Container)
-			leftBox := box.Objects[0].(*fyne.Container)
-			title := leftBox.Objects[0].(*widget.Label)
-			projectLabel := leftBox.Objects[1].(*widget.Label)
-			rightBox := box.Objects[1].(*fyne.Container)
-			dur := rightBox.Objects[0].(*widget.Label)
-			editBtn := rightBox.Objects[1].(*widget.Button)
-			delBtn := rightBox.Objects[2].(*widget.Button)
+			row := o.(*taskRow)
 
-			title.SetText(entry.Description)
-
-			// Display project name if assigned
-			if entry.ProjectID != "" {
-				for _, p := range d.projects {
-					if p.ID == entry.ProjectID {
-						projectLabel.SetText(p.Name)
-						projectLabel.Show()
-						break
-					}
-				}
-			} else {
-				projectLabel.SetText("")
-				projectLabel.Hide()
-			}
+			row.title.SetText(entry.Description)
+			row.swatch.SetHex(d.projectColor(entry.ProjectID))
+			row.meta.SetText(entryMeta(entry, d.projectName(entry.ProjectID), "15:04"))
 
 			// Calculate duration for display
 			activeID := d.GetActiveID()
@@ -358,32 +335,28 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 					d.mu.RUnlock()
 					currentDur += time.Since(lastStart)
 				}
-				dur.SetText(utils.FormatDuration(currentDur))
-				dur.TextStyle = fyne.TextStyle{Italic: true}
-				editBtn.Disable()
+				row.setDuration(utils.FormatDuration(currentDur), true)
+				row.edit.Disable()
 			} else {
 				// History items
 				if entry.State == models.TaskStatePaused {
-					dur.SetText(utils.FormatDuration(time.Duration(entry.Accumulated) * time.Second))
-					dur.TextStyle = fyne.TextStyle{Italic: true}
-					editBtn.Disable()
+					row.setDuration(utils.FormatDuration(time.Duration(entry.Accumulated)*time.Second), true)
+					row.edit.Disable()
 				} else if entry.State == models.TaskStateRunning {
 					// Should technically not happen for non-active tasks unless multiple running (bug)
 					// or if activeID mismatch.
-					dur.SetText(lang.L("running"))
-					dur.TextStyle = fyne.TextStyle{Italic: true}
-					editBtn.Disable()
+					row.setDuration(lang.L("running"), true)
+					row.edit.Disable()
 				} else {
-					dur.SetText(utils.FormatDuration(time.Duration(entry.Duration) * time.Second))
-					dur.TextStyle = fyne.TextStyle{Italic: false}
-					editBtn.Enable()
+					row.setDuration(utils.FormatDuration(time.Duration(entry.Duration)*time.Second), false)
+					row.edit.Enable()
 				}
 			}
 
-			editBtn.OnTapped = func() {
+			row.edit.OnTapped = func() {
 				d.showEditDialog(entry)
 			}
-			delBtn.OnTapped = func() {
+			row.del.OnTapped = func() {
 				parentWindow := safeGetMainWindow()
 				if parentWindow == nil {
 					return
@@ -409,29 +382,57 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 			}
 		},
 	)
+	// Rows are not selectable; the buttons carry the actions.
+	simpleList.OnSelected = func(id widget.ListItemID) { simpleList.UnselectAll() }
+
+	summaryLabel := captionLabel("")
+	emptyToday := emptyState(theme.HistoryIcon(), lang.L("no_tasks_today"), lang.L("no_tasks_today_hint"))
+	emptySearch := emptyState(theme.SearchIcon(), lang.L("no_matching_tasks"), "")
 
 	d.refreshList = func() {
 		// Load today or active date?
 		// If active task is from yesterday, we might want to see it.
 		// But dashboard usually shows "Today".
 		// Let's stick to Today for the list.
-		entries, _ := d.storage.LoadEntries(time.Now())
+		all, _ := d.storage.LoadEntries(time.Now())
+		entries := all
 		if d.searchEntry.Text != "" {
 			entries = service.FilterTasks(entries, d.searchEntry.Text)
 		}
 		d.taskList = entries
+		d.todayEntries = all
 		simpleList.Refresh()
+
+		var total time.Duration
+		for _, e := range all {
+			if e.State == models.TaskStateStopped || !e.EndTime.IsZero() {
+				total += time.Duration(e.Duration) * time.Second
+			}
+		}
+		summaryLabel.SetText(fmt.Sprintf(lang.L("today_summary"), len(all), utils.FormatDuration(total)))
+
+		emptyToday.Hide()
+		emptySearch.Hide()
+		if len(entries) == 0 {
+			if len(all) == 0 {
+				emptyToday.Show()
+			} else {
+				emptySearch.Show()
+			}
+		}
 		d.updateButtons()
 	}
 
 	// Ticker with lifecycle management
 	d.stopTicker = make(chan struct{})
+	// Keep a copy: StopTicker clears the field (under the lock) when closing it.
+	stop := d.stopTicker
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-d.stopTicker:
+			case <-stop:
 				return
 			case <-ticker.C:
 				fyne.Do(func() {
@@ -457,19 +458,12 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 		}
 	}()
 
-	// Check for active task on load
-	d.checkForActiveTask()
-	d.refreshList() // Initial load
-
 	// Project selector with color indicator
-	projectSelectorWithColor := container.NewHBox(
-		projectColorIndicator,
-		d.projectSelect,
-	)
+	projectSelectorWithColor := container.NewBorder(nil, nil,
+		container.NewCenter(Inset(4, projectColorIndicator)), nil, d.projectSelect)
 
 	// Category input with icon
-	categoryIcon := widget.NewIcon(theme.ListIcon())
-	categoryWithIcon := container.NewBorder(nil, nil, categoryIcon, nil, d.categoryEntry)
+	categoryWithIcon := container.NewBorder(nil, nil, widget.NewIcon(theme.ListIcon()), nil, d.categoryEntry)
 
 	// Compact input row for project and category
 	inputDetailsRow := container.NewGridWithColumns(2,
@@ -480,17 +474,113 @@ func (d *Dashboard) MakeUI() fyne.CanvasObject {
 	// Main input area with task entry and buttons
 	taskInputRow := container.NewBorder(nil, nil, nil, container.NewHBox(d.startBtn, d.pauseBtn), d.taskEntry)
 
-	return container.NewBorder(
-		container.NewVBox(
-			timerLabel,
-			taskInputRow,
-			inputDetailsRow,
-			layout.NewSpacer(),
-			d.searchEntry,
-		),
+	timerBox := container.NewVBox(statusRow, timerLabel)
+	timerBox.Layout = &tightVBox{gap: -12}
+	timerCard := NewSurface(container.NewVBox(
+		timerBox,
+		widget.NewSeparator(),
+		taskInputRow,
+		inputDetailsRow,
+	))
+
+	todayTitle := container.NewVBox(sectionTitle(lang.L("today")), summaryLabel)
+	todayTitle.Layout = &tightVBox{gap: -12}
+	listHeader := container.NewBorder(nil, nil, todayTitle, container.NewCenter(minWidth(200, d.searchEntry)))
+
+	listCard := newSurfaceWithInset(container.NewStack(simpleList, emptyToday, emptySearch), 4)
+
+	// Check for active task on load
+	d.checkForActiveTask()
+	d.refreshList() // Initial load
+
+	return Inset(12, container.NewBorder(
+		container.NewVBox(timerCard, Inset(2, listHeader)),
 		nil, nil, nil,
-		simpleList,
-	)
+		listCard,
+	))
+}
+
+// StatusBadge is the compact timer shown in the app bar, so a running task is
+// visible from every tab. It is hidden while nothing is tracked.
+func (d *Dashboard) StatusBadge() fyne.CanvasObject {
+	d.badgeSwatch = NewSwatch(stateColorRunning, 10)
+	timeLabel := widget.NewLabelWithData(d.timerData)
+	timeLabel.TextStyle = fyne.TextStyle{Monospace: true, Bold: true}
+	d.badge = container.NewHBox(container.NewCenter(d.badgeSwatch), timeLabel)
+	d.updateButtons()
+	// Keep the space reserved while hidden, so showing the badge needs no
+	// relayout of the app bar.
+	reserve := canvas.NewRectangle(color.Transparent)
+	reserve.SetMinSize(fyne.NewSize(120, timeLabel.MinSize().Height))
+	return container.NewStack(reserve, d.badge)
+}
+
+// ReloadProjects picks up projects added or edited on the Projects tab.
+func (d *Dashboard) ReloadProjects() {
+	projects, err := d.storage.LoadProjects()
+	if err != nil {
+		return
+	}
+	d.projects = projects
+	if d.projectSelect == nil {
+		return
+	}
+	selected := d.projectSelect.Selected
+	d.projectSelect.SetOptions(d.projectOptions())
+	found := false
+	for _, o := range d.projectSelect.Options {
+		if o == selected {
+			found = true
+			break
+		}
+	}
+	if !found {
+		d.projectSelect.SetSelected(lang.L("none"))
+	}
+	if d.refreshList != nil {
+		d.refreshList()
+	}
+}
+
+func (d *Dashboard) projectOptions() []string {
+	options := []string{lang.L("none")}
+	for _, p := range d.projects {
+		options = append(options, p.Name)
+	}
+	return options
+}
+
+func (d *Dashboard) projectIDByName(name string) string {
+	for _, p := range d.projects {
+		if p.Name == name {
+			return p.ID
+		}
+	}
+	return ""
+}
+
+func (d *Dashboard) projectName(id string) string {
+	if id == "" {
+		return ""
+	}
+	for _, p := range d.projects {
+		if p.ID == id {
+			return p.Name
+		}
+	}
+	return ""
+}
+
+func (d *Dashboard) projectColor(id string) string {
+	if id == "" {
+		return ""
+	}
+	for _, p := range d.projects {
+		if p.ID == id {
+			return p.ColorHex
+		}
+	}
+	return ""
 }
 
 // StopTicker stops the background ticker goroutine to prevent memory leaks.
@@ -537,10 +627,14 @@ func (d *Dashboard) SetupShortcuts(w fyne.Window) {
 }
 
 func (d *Dashboard) updateButtons() {
+	if d.startBtn == nil {
+		return
+	}
 	activeState := d.GetActiveState()
 	if activeState == models.TaskStateRunning {
 		d.startBtn.SetText(lang.L("stop"))
 		d.startBtn.SetIcon(theme.MediaStopIcon())
+		d.startBtn.Importance = widget.DangerImportance
 		d.startBtn.Enable()
 
 		d.pauseBtn.SetText(lang.L("pause"))
@@ -549,6 +643,7 @@ func (d *Dashboard) updateButtons() {
 	} else if activeState == models.TaskStatePaused {
 		d.startBtn.SetText(lang.L("stop"))
 		d.startBtn.SetIcon(theme.MediaStopIcon())
+		d.startBtn.Importance = widget.DangerImportance
 		d.startBtn.Enable()
 
 		d.pauseBtn.SetText(lang.L("resume"))
@@ -557,12 +652,57 @@ func (d *Dashboard) updateButtons() {
 	} else {
 		d.startBtn.SetText(lang.L("start"))
 		d.startBtn.SetIcon(theme.MediaPlayIcon())
+		d.startBtn.Importance = widget.HighImportance
 		d.startBtn.Enable()
 
 		d.pauseBtn.SetText(lang.L("pause"))
 		d.pauseBtn.SetIcon(theme.MediaPauseIcon())
 		d.pauseBtn.Disable()
 	}
+	d.startBtn.Refresh()
+	d.updateStatus(activeState)
+}
+
+// updateStatus shows what is being tracked above the timer and in the app bar.
+func (d *Dashboard) updateStatus(state int) {
+	desc := d.activeDescription()
+	status, dot := lang.L("ready_to_track"), ""
+	switch state {
+	case models.TaskStateRunning:
+		status, dot = lang.L("tracking"), stateColorRunning
+	case models.TaskStatePaused:
+		status, dot = lang.L("paused"), stateColorPaused
+	}
+	if dot != "" && desc != "" {
+		status += ": " + desc
+	}
+	if d.statusLabel != nil {
+		d.statusSwatch.SetHex(dot)
+		d.statusLabel.SetText(status)
+	}
+	if d.badge != nil {
+		if dot == "" {
+			d.badge.Hide()
+		} else {
+			d.badgeSwatch.SetHex(dot)
+			d.badge.Show()
+		}
+	}
+}
+
+// activeDescription returns the description of the active task, if it is in
+// today's list.
+func (d *Dashboard) activeDescription() string {
+	id := d.GetActiveID()
+	if id == "" {
+		return ""
+	}
+	for _, e := range d.todayEntries {
+		if e.ID == id {
+			return e.Description
+		}
+	}
+	return ""
 }
 
 func (d *Dashboard) checkForActiveTask() {
@@ -623,7 +763,7 @@ func (d *Dashboard) saveState() {
 	activeOriginalStart := d.activeOriginalStart
 	activeLastStart := d.activeLastStart
 	d.mu.RUnlock()
-	
+
 	d.storage.SaveAppState(store.AppState{
 		ActiveTaskID:   activeID,
 		ActiveTaskDate: activeOriginalStart,
@@ -639,7 +779,7 @@ func (d *Dashboard) updateActiveEntry() error {
 	activeState := d.activeState
 	accumulated := d.accumulated
 	d.mu.RUnlock()
-	
+
 	entries, err := d.storage.LoadEntries(activeOriginalStart)
 	if err != nil {
 		return err
@@ -694,7 +834,7 @@ func (d *Dashboard) PauseTask() {
 		return
 	}
 	now := time.Now()
-	
+
 	d.mu.Lock()
 	prevAccumulated := d.accumulated
 	prevState := d.activeState

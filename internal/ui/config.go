@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/container"
 	fyneDialog "fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/lang"
+	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/spf13/viper"
@@ -20,6 +21,7 @@ type Config struct {
 	window             fyne.Window
 	storage            *store.Storage
 	userConfigFilePath string
+	updater            *Updater
 }
 
 func NewConfig(w fyne.Window, s *store.Storage, userConfigFilePath string) *Config {
@@ -135,8 +137,11 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 		saveConfig()
 	})
 
+	saveBtn.Importance = widget.HighImportance
+	saveBtn.SetIcon(theme.DocumentSaveIcon())
+
 	eraseBtn := widget.NewButtonWithIcon(lang.L("erase_all_history"), theme.DeleteIcon(), func() {
-		fyneDialog.ShowConfirm(lang.L("erase_all_history"), lang.L("erase_history_confirm"), func(confirmed bool) {
+		d := fyneDialog.NewConfirm(lang.L("erase_all_history"), lang.L("erase_history_confirm"), func(confirmed bool) {
 			if confirmed {
 				if err := c.storage.DeleteAllEntries(); err != nil {
 					fyneDialog.ShowError(err, c.window)
@@ -145,6 +150,8 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 				}
 			}
 		}, c.window)
+		d.SetConfirmImportance(widget.DangerImportance)
+		d.Show()
 	})
 	eraseBtn.Importance = widget.DangerImportance
 
@@ -153,22 +160,69 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 		fyne.CurrentApp().Quit()
 	})
 
-	return container.NewVBox(
-		widget.NewLabel(lang.L("config_tab")),
+	general := NewSurface(container.NewVBox(
+		sectionTitle(lang.L("general_settings")),
 		widget.NewForm(
 			widget.NewFormItem(lang.L("data_folder"), folderContainer),
 			widget.NewFormItem(lang.L("idle_detection"), idleCheck),
 			widget.NewFormItem(lang.L("idle_threshold"), thresholdEntry),
-			widget.NewFormItem("", widget.NewSeparator()),
-			widget.NewFormItem(lang.L("billing_settings"), widget.NewLabel("")),
+		),
+	))
+
+	billing := NewSurface(container.NewVBox(
+		sectionTitle(lang.L("billing_settings")),
+		widget.NewForm(
 			widget.NewFormItem(lang.L("hourly_rate"), hourlyRateEntry),
 			widget.NewFormItem(lang.L("max_hours"), maxHoursEntry),
 			widget.NewFormItem(lang.L("extra_rate"), extraRateEntry),
 		),
-		saveBtn,
-		widget.NewSeparator(),
+	))
+
+	appearance := NewSurface(container.NewVBox(
+		sectionTitle(lang.L("appearance")),
+		widget.NewForm(widget.NewFormItem(lang.L("theme"), c.themeSelector())),
+	))
+
+	updatesPanel := fyne.CanvasObject(container.NewVBox())
+	if c.updater != nil {
+		updatesPanel = NewSurface(c.updater.Panel())
+	}
+
+	danger := NewSurface(container.NewVBox(
+		sectionTitle(lang.L("danger_zone")),
 		eraseBtn,
-		widget.NewSeparator(),
 		quitBtn,
-	)
+	))
+
+	settings := container.NewVBox(general, billing, container.NewHBox(layout.NewSpacer(), saveBtn))
+	return Inset(12, container.NewVScroll(newAdaptiveColumns(760, settings, container.NewVBox(appearance, updatesPanel, danger))))
+}
+
+// themeSelector switches between following the desktop, light and dark. The
+// choice applies and is saved straight away.
+func (c *Config) themeSelector() fyne.CanvasObject {
+	prefs := []string{ThemeSystem, ThemeLight, ThemeDark}
+	labels := []string{lang.L("theme_system"), lang.L("theme_light"), lang.L("theme_dark")}
+
+	radio := widget.NewRadioGroup(labels, nil)
+	radio.Required = true
+	current := ThemePreference()
+	for i, p := range prefs {
+		if p == current {
+			radio.SetSelected(labels[i])
+		}
+	}
+	radio.OnChanged = func(sel string) {
+		for i, l := range labels {
+			if l != sel {
+				continue
+			}
+			viper.Set("theme", prefs[i])
+			ApplyTheme(fyne.CurrentApp())
+			if err := viper.WriteConfigAs(c.userConfigFilePath); err != nil {
+				fyneDialog.ShowError(err, c.window)
+			}
+		}
+	}
+	return radio
 }

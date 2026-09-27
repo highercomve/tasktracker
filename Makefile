@@ -31,7 +31,7 @@ ZIG_TARGET_linux-arm = arm-linux-gnueabihf
 ZIG_TARGET_windows-amd64 = x86_64-windows-gnu
 ZIG_TARGET_windows-arm64 = aarch64-windows-gnu
 
-.PHONY: all build build-native run clean test deps build-linux build-windows debian-deps arch-deps release
+.PHONY: updater-key all build build-native run clean test deps build-linux build-windows debian-deps arch-deps release
 
 all: build-linux-amd64 build-windows-amd64
 
@@ -53,6 +53,14 @@ test:
 
 deps:
 	go mod tidy
+
+# Create the self-updater's signing key pair: the private key goes to
+# $(UPDATER_KEY_DIR)/updater.key (store it as the UPDATER_PRIVATE_KEY repository
+# secret and back it up; it never goes in the repo) and the public key into
+# internal/update/pubkey.go (commit that).
+UPDATER_KEY_DIR ?= $(HOME)/.tasktracker-updater
+updater-key:
+	go run ./tools/updater --generate-key $(UPDATER_KEY_DIR) --pubkey-file internal/update/pubkey.go
 
 # Native build for the host platform using the system C compiler.
 # Use this on a runner whose OS/arch matches the desired target (e.g. Linux on
