@@ -21,6 +21,7 @@ type Config struct {
 	window             fyne.Window
 	storage            *store.Storage
 	userConfigFilePath string
+	updater            *Updater
 }
 
 func NewConfig(w fyne.Window, s *store.Storage, userConfigFilePath string) *Config {
@@ -182,6 +183,11 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 		widget.NewForm(widget.NewFormItem(lang.L("theme"), c.themeSelector())),
 	))
 
+	updatesPanel := fyne.CanvasObject(container.NewVBox())
+	if c.updater != nil {
+		updatesPanel = NewSurface(c.updater.Panel())
+	}
+
 	danger := NewSurface(container.NewVBox(
 		sectionTitle(lang.L("danger_zone")),
 		eraseBtn,
@@ -189,7 +195,7 @@ func (c *Config) MakeUI() fyne.CanvasObject {
 	))
 
 	settings := container.NewVBox(general, billing, container.NewHBox(layout.NewSpacer(), saveBtn))
-	return Inset(12, container.NewVScroll(newAdaptiveColumns(760, settings, container.NewVBox(appearance, danger))))
+	return Inset(12, container.NewVScroll(newAdaptiveColumns(760, settings, container.NewVBox(appearance, updatesPanel, danger))))
 }
 
 // themeSelector switches between following the desktop, light and dark. The

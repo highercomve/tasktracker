@@ -29,6 +29,8 @@ func BuildMainContent(w fyne.Window, s *store.Storage, userConfigFilePath string
 	reports := NewReports(s)
 	projects := NewProjects(s)
 	configUI := NewConfig(w, s, userConfigFilePath)
+	updater := NewUpdater(fyne.CurrentApp(), w)
+	configUI.updater = updater
 
 	trackerTab := container.NewTabItemWithIcon(lang.L("tracker_tab"), theme.HistoryIcon(), dashboard.MakeUI())
 	reportsTab := container.NewTabItemWithIcon(lang.L("reports_tab"), theme.DocumentIcon(), reports.MakeUI())
@@ -46,11 +48,14 @@ func BuildMainContent(w fyne.Window, s *store.Storage, userConfigFilePath string
 			reports.Refresh()
 		case projectsTab:
 			projects.Refresh()
+		case configTab:
+			updater.CheckOnce()
 		}
 	}
 
 	header := buildHeader(icon, dashboard.StatusBadge())
-	return container.NewBorder(header, buildFooter(), nil, nil, tabs), dashboard
+	updater.Start()
+	return container.NewBorder(header, buildFooter(updater.Link()), nil, nil, tabs), dashboard
 }
 
 // buildHeader is the app bar: icon, name and tagline, plus the running timer.
@@ -72,14 +77,15 @@ func buildHeader(icon fyne.Resource, status fyne.CanvasObject) fyne.CanvasObject
 	return container.NewVBox(Inset(8, bar), widget.NewSeparator())
 }
 
-// buildFooter shows the version and a link to the project.
-func buildFooter() fyne.CanvasObject {
+// buildFooter shows the version, the update link when there is one and a
+// link to the project.
+func buildFooter(updateLink fyne.CanvasObject) fyne.CanvasObject {
 	ver := captionLabel(versionText())
 	link := widget.NewHyperlink("GitHub", mustParseURL(repoURL))
 	link.SizeName = theme.SizeNameCaptionText
 	return container.NewVBox(
 		widget.NewSeparator(),
-		container.NewHBox(Inset(0, ver), layout.NewSpacer(), link),
+		container.NewHBox(Inset(0, ver), layout.NewSpacer(), updateLink, link),
 	)
 }
 
